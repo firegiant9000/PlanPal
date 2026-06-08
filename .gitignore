@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+.expo/
+.turbo/
+*.tsbuildinfo
+
+# Generated framework ambient types (regenerated on build; committed equivalents
+# live in-tree: apps/web/src/next-ambient.d.ts, apps/mobile/expo-env.d.ts)
+next-env.d.ts
+
+# Test / coverage
+coverage/
+
+# Environment & secrets — NEVER commit real values (templates are *.example)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

@@ -1,0 +1,49 @@
+# Contract check (Phase 1).
+#
+# Verifies the OpenAPI spec is valid and that the generated types in
+# @planpal/types are in sync with it (drift = failed build). Scoped to the
+# Phase 1 deliverable; the full lint/test/deploy CI/CD pipeline is added in
+# Phase 3 (see MONTH_1_PLAN.md) and can extend or absorb this workflow.
+name: contract
+
+on:
+  pull_request:
+    paths:
+      - 'packages/api-contract/**'
+      - 'packages/types/**'
+      - '.github/workflows/contract.yml'
+      - 'pnpm-lock.yaml'
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint OpenAPI spec
+        run: pnpm --filter @planpal/api-contract validate
+
+      - name: Regenerate types from spec
+        run: pnpm --filter @planpal/api-contract generate
+
+      - name: Fail if generated types drift from the spec
+        run: |
+          if ! git diff --exit-code -- packages/types/src/generated; then
+            echo "::error::Generated types are out of date. Run 'pnpm contract:generate' and commit the result."
+            exit 1
+          fi
+
+      - name: Typecheck workspace
+        run: pnpm typecheck

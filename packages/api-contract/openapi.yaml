@@ -1,0 +1,1427 @@
+openapi: 3.1.0
+
+info:
+  title: PlanPal API
+  version: 0.1.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-PROPRIETARY
+  description: |
+    **PlanPal integration contract (Phase 1).**
+
+    This is the authoritative shape of every endpoint, request body, response, and
+    error code. Both the mobile (Expo) and web (Next.js) consumers and the backend
+    (Supabase) implementation are built against it. Per the standing rule in
+    DEVELOPMENT_PLAN.md, this spec is the contract — keep it current.
+
+    ## Conventions
+
+    - **Envelope.** Every response is the `ApiResult` envelope: success is
+      `{ "ok": true, "data": <T> }`; failure is
+      `{ "ok": false, "error": { "code", "message", "details?" } }`. This mirrors
+      `ApiResult<T>` / `ApiError` in `@planpal/types`.
+    - **Pagination.** List endpoints return `{ items, nextCursor }` (cursor-based);
+      pass the opaque `nextCursor` back as `?cursor=` to page. `nextCursor: null`
+      means the last page.
+    - **Auth.** Sign-up / sign-in / OAuth (email-password, Google, Apple) are handled
+      by **Supabase Auth**, not by this API. Every endpoint here expects the Supabase
+      access token as `Authorization: Bearer <jwt>`. There are deliberately no
+      auth endpoints in this spec.
+    - **Timezone.** `localStart` + `timezoneId` (IANA) is the source of truth.
+      `utcStart` / `utcEnd` are server-derived (read-only) and used for indexing and
+      conflict detection. Clients never compute UTC.
+    - **Recurrence.** Recurring events use the **master-rule + exceptions** model:
+      one master row carries the `recurrenceRule` (RRULE); per-occurrence edits/cancels
+      become exceptions. **The client never expands rules** — `GET /occurrences` does
+      server-side expansion for a date range.
+
+    ## Out of scope for Phase 1 (added when their phase begins)
+
+    Screenshot-to-schedule parsing jobs (Beta M5), calendar-export integrations
+    (Google/Outlook one-way push, V1), and outbound social share are intentionally
+    not designed here. iCal export is included because it is an MVP/early surface.
+
+servers:
+  - url: https://{env}.planpal.app/api/v1
+    description: Per-environment base URL
+    variables:
+      env:
+        default: dev
+        enum: [dev, staging, prod]
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: meta
+    description: Health and service metadata (unauthenticated).
+  - name: profile
+    description: The authenticated user's own profile and account.
+  - name: notifications
+    description: Notification preferences and device push tokens.
+  - name: events
+    description: Event CRUD (master-rule + exceptions) and occurrence expansion.
+  - name: friends
+    description: Friend codes, connections, requests, and the shared (Friends) view.
+  - name: export
+    description: Data export (iCal).
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Meta
+  # ---------------------------------------------------------------------------
+  /healthz:
+    get:
+      tags: [meta]
+      summary: Liveness probe
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResult'
+
+  # ---------------------------------------------------------------------------
+  # Profile / account
+  # ---------------------------------------------------------------------------
+  /me:
+    get:
+      tags: [profile]
+      summary: Get the authenticated user's profile
+      operationId: getMe
+      responses:
+        '200':
+          description: The current user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    patch:
+      tags: [profile]
+      summary: Update the authenticated user's profile
+      operationId: updateMe
+      description: |
+        Partial update. Changing `timezoneId` triggers server-side recomputation of
+        `utcStart`/`utcEnd` for all of the user's events (see the timezone note).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [profile]
+      summary: Delete the authenticated user's account
+      operationId: deleteMe
+      description: |
+        GDPR/CCPA account deletion. Removes the user's events from every friend's
+        view within 24h and revokes all shared visibility immediately.
+      responses:
+        '202':
+          description: Deletion accepted and in progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  # ---------------------------------------------------------------------------
+  # Notification preferences + devices
+  # ---------------------------------------------------------------------------
+  /me/notification-preferences:
+    get:
+      tags: [notifications]
+      summary: Get notification preferences
+      operationId: getNotificationPreferences
+      responses:
+        '200':
+          description: The user's notification defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    put:
+      tags: [notifications]
+      summary: Replace notification preferences
+      operationId: putNotificationPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferenceUpdate'
+      responses:
+        '200':
+          description: Updated preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /me/devices:
+    post:
+      tags: [notifications]
+      summary: Register an Expo push token
+      operationId: registerDevice
+      description: Idempotent on `expoPushToken`; re-registering refreshes platform/last-seen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegistration'
+      responses:
+        '200':
+          description: Device registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /me/devices/{expoPushToken}:
+    delete:
+      tags: [notifications]
+      summary: Deregister a push token (on sign-out)
+      operationId: deregisterDevice
+      parameters:
+        - name: expoPushToken
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Deregistered (idempotent — 202 even if it was already gone).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  # ---------------------------------------------------------------------------
+  # Events
+  # ---------------------------------------------------------------------------
+  /events:
+    get:
+      tags: [events]
+      summary: List the user's events (master rows)
+      operationId: listEvents
+      description: |
+        Returns master / standalone event definitions, not expanded occurrences.
+        To render a calendar for a date range, use `GET /occurrences`.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPageResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [events]
+      summary: Create an event
+      operationId: createEvent
+      description: |
+        Creates a master (recurring, when `recurrenceRule` is set) or standalone event.
+        Server derives `utcStart`/`utcEnd` from `localStart`/`localEnd` + `timezoneId`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreate'
+      responses:
+        '201':
+          description: Created event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /events/{eventId}:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      summary: Get a single event (master)
+      operationId: getEvent
+      responses:
+        '200':
+          description: The event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [events]
+      summary: Update an event (master / all occurrences)
+      operationId: updateEvent
+      description: |
+        Edits the master row. For recurring events this is the **ALL** edit scope.
+        To edit a single occurrence, use the occurrence endpoints below
+        (`THIS` scope). `THIS_AND_FOLLOWING` semantics are deferred to Post-V1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventUpdate'
+      responses:
+        '200':
+          description: Updated event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [events]
+      summary: Delete an event (and all its occurrences/exceptions)
+      operationId: deleteEvent
+      responses:
+        '202':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /events/{eventId}/occurrences/{occurrenceDate}:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+      - name: occurrenceDate
+        in: path
+        required: true
+        description: The IsoDate of the occurrence being overridden, as produced by expansion.
+        schema:
+          $ref: '#/components/schemas/IsoDate'
+    patch:
+      tags: [events]
+      summary: Override a single occurrence (THIS scope)
+      operationId: overrideOccurrence
+      description: |
+        Creates/updates an exception row for one occurrence of a recurring event
+        (maps to `master_event_id` + `recurrence_exception_date` in the schema).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OccurrenceOverride'
+      responses:
+        '200':
+          description: The resulting overridden occurrence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventOccurrenceResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [events]
+      summary: Cancel a single occurrence (THIS scope)
+      operationId: cancelOccurrence
+      description: Adds an exception that removes one occurrence from expansion.
+      responses:
+        '202':
+          description: Occurrence cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /occurrences:
+    get:
+      tags: [events]
+      summary: Expand the user's calendar over a date range (server-side)
+      operationId: listOccurrences
+      description: |
+        Server-side occurrence expansion (Phase 4 kickoff). Expands all of the
+        caller's events — recurring (RRULE) and standalone — into concrete
+        occurrences within `[from, to]`, applying exceptions. The client never
+        expands rules. The range is capped at 180 days.
+      parameters:
+        - $ref: '#/components/parameters/RangeFrom'
+        - $ref: '#/components/parameters/RangeTo'
+      responses:
+        '200':
+          description: Expanded occurrences in range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OccurrenceListResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  # ---------------------------------------------------------------------------
+  # Friends
+  # ---------------------------------------------------------------------------
+  /friend-code:
+    get:
+      tags: [friends]
+      summary: Get my active friend code
+      operationId: getFriendCode
+      responses:
+        '200':
+          description: The active code (8-char, one per user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendCodeResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /friend-code/rotate:
+    post:
+      tags: [friends]
+      summary: Rotate my friend code
+      operationId: rotateFriendCode
+      description: |
+        Issues a new active code. The previous code expires after 30 days; existing
+        connections are unaffected.
+      responses:
+        '200':
+          description: The new active code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendCodeResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /friends:
+    get:
+      tags: [friends]
+      summary: List accepted friends
+      operationId: listFriends
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of friend connections.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendConnectionPageResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /friends/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      tags: [friends]
+      summary: Unfriend
+      operationId: unfriend
+      description: Removes shared visibility immediately on both sides.
+      responses:
+        '202':
+          description: Connection removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /friends/{userId}/block:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [friends]
+      summary: Block a user
+      operationId: blockUser
+      responses:
+        '202':
+          description: User blocked (any existing connection removed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /friends/{userId}/report:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [friends]
+      summary: Report a user
+      operationId: reportUser
+      description: Routes to an internal manual review queue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+      responses:
+        '202':
+          description: Report received.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /friends/{userId}/occurrences:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [friends]
+      summary: Expand a friend's calendar (server-redacted)
+      operationId: listFriendOccurrences
+      description: |
+        The Friends view. Returns only occurrences the friend has shared with the
+        caller. **Sensitive-public** events are redacted **server-side at query time**
+        (title/notes/location stripped, returned as a "Busy" block) — a compromised
+        client can never receive hidden fields. Range capped at 180 days.
+      parameters:
+        - $ref: '#/components/parameters/RangeFrom'
+        - $ref: '#/components/parameters/RangeTo'
+      responses:
+        '200':
+          description: The friend's shared occurrences (redacted as applicable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendOccurrenceListResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /friend-requests:
+    get:
+      tags: [friends]
+      summary: List pending friend requests
+      operationId: listFriendRequests
+      parameters:
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [incoming, outgoing]
+          description: Filter by direction. Omit for both.
+      responses:
+        '200':
+          description: Pending requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestListResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [friends]
+      summary: Send a friend request by code
+      operationId: createFriendRequest
+      description: |
+        Mutual-consent only — there is no user search or directory. Rate limited to
+        20 requests/hour/account (anti code-guessing).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FriendRequestCreate'
+      responses:
+        '201':
+          description: Request created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /friend-requests/{requestId}/accept:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [friends]
+      summary: Accept an incoming friend request
+      operationId: acceptFriendRequest
+      responses:
+        '200':
+          description: The resulting accepted connection.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendConnectionResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /friend-requests/{requestId}/decline:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [friends]
+      summary: Decline an incoming friend request
+      operationId: declineFriendRequest
+      responses:
+        '202':
+          description: Request declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Export
+  # ---------------------------------------------------------------------------
+  /export/ical:
+    get:
+      tags: [export]
+      summary: Export the user's calendar as iCal
+      operationId: exportICal
+      description: |
+        Standards-compliant `.ics` of the user's non-private events. Returns the
+        calendar body directly (not the JSON envelope).
+      responses:
+        '200':
+          description: An iCalendar document.
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase Auth access token.
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque pagination cursor from a prior response's `nextCursor`.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    RangeFrom:
+      name: from
+      in: query
+      required: true
+      description: Inclusive start of the expansion window.
+      schema:
+        $ref: '#/components/schemas/IsoDate'
+    RangeTo:
+      name: to
+      in: query
+      required: true
+      description: Inclusive end of the expansion window (≤ 180 days after `from`).
+      schema:
+        $ref: '#/components/schemas/IsoDate'
+
+  responses:
+    ValidationError:
+      description: Request failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error:
+              code: validation_error
+              message: One or more fields are invalid.
+              details:
+                localEnd: ['must be after localStart']
+    Unauthenticated:
+      description: Missing or invalid access token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error: { code: unauthenticated, message: Authentication required. }
+    Forbidden:
+      description: Authenticated but not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error: { code: forbidden, message: You do not have access to this resource. }
+    NotFound:
+      description: Resource not found (or not visible to the caller).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error: { code: not_found, message: Resource not found. }
+    Conflict:
+      description: Conflicts with current state (e.g. already friends, username taken).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error: { code: already_friends, message: You are already connected. }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          description: Seconds until the caller may retry.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error: { code: rate_limited, message: Too many requests. Try again later. }
+
+  schemas:
+    # --- Scalars (branded in @planpal/types) --------------------------------
+    Uuid:
+      type: string
+      format: uuid
+    IsoDateTime:
+      type: string
+      format: date-time
+      description: ISO-8601 timestamp in UTC, e.g. "2026-06-07T13:45:00Z".
+    IsoDate:
+      type: string
+      format: date
+      description: ISO-8601 calendar date, e.g. "2026-06-07".
+    LocalDateTime:
+      type: string
+      pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$'
+      description: |
+        Naive local wall-clock date-time, no offset, e.g. "2026-06-07T09:00:00".
+        Interpreted in the event's `timezoneId`. Source of truth for event bounds.
+    TimezoneId:
+      type: string
+      description: IANA timezone identifier, e.g. "America/New_York".
+      example: America/New_York
+    RRuleString:
+      type: string
+      description: RFC 5545 RRULE, e.g. "FREQ=WEEKLY;BYDAY=MO,WE,FR".
+      example: FREQ=WEEKLY;BYDAY=MO,WE,FR
+    Visibility:
+      type: string
+      enum: [private, shared_all, shared_select, sensitive_public]
+      description: |
+        Mirrors `Visibility` in `@planpal/types`. `sensitive_public` is redacted
+        server-side in shared views (see `GET /friends/{userId}/occurrences`).
+    FriendConnectionStatus:
+      type: string
+      enum: [pending, accepted, blocked]
+    FriendRequestDirection:
+      type: string
+      enum: [incoming, outgoing]
+
+    # --- Envelope ------------------------------------------------------------
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable error code (see enum in README).
+        message:
+          type: string
+          description: Developer-facing message; not necessarily user-facing.
+        details:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Optional field-level validation messages.
+    ErrorEnvelope:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    # --- Domain models -------------------------------------------------------
+    Profile:
+      type: object
+      required: [id, username, displayName, defaultVisibility, timezoneId, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+        displayName:
+          type: string
+          maxLength: 80
+        avatarUrl:
+          type: [string, 'null']
+          format: uri
+        birthday:
+          $ref: '#/components/schemas/IsoDate'
+        defaultVisibility:
+          $ref: '#/components/schemas/Visibility'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        lastActiveOptIn:
+          type: boolean
+          default: false
+          description: Whether the user exposes last-active to friends (off by default).
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+    ProfileUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+        displayName:
+          type: string
+          maxLength: 80
+        avatarUrl:
+          type: [string, 'null']
+          format: uri
+        birthday:
+          $ref: '#/components/schemas/IsoDate'
+        defaultVisibility:
+          $ref: '#/components/schemas/Visibility'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        lastActiveOptIn:
+          type: boolean
+
+    NotificationPreference:
+      type: object
+      required: [userId, leadTimesMinutes, pushEnabled, updatedAt]
+      properties:
+        userId:
+          $ref: '#/components/schemas/Uuid'
+        leadTimesMinutes:
+          type: array
+          description: Default minutes-before-start lead times for reminders.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 40320
+          example: [10, 60]
+        pushEnabled:
+          type: boolean
+        quietHoursStart:
+          type: [string, 'null']
+          pattern: '^\d{2}:\d{2}$'
+          description: Local "HH:mm" start of do-not-disturb, or null.
+        quietHoursEnd:
+          type: [string, 'null']
+          pattern: '^\d{2}:\d{2}$'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+    NotificationPreferenceUpdate:
+      type: object
+      additionalProperties: false
+      required: [leadTimesMinutes, pushEnabled]
+      properties:
+        leadTimesMinutes:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 40320
+        pushEnabled:
+          type: boolean
+        quietHoursStart:
+          type: [string, 'null']
+          pattern: '^\d{2}:\d{2}$'
+        quietHoursEnd:
+          type: [string, 'null']
+          pattern: '^\d{2}:\d{2}$'
+
+    DeviceRegistration:
+      type: object
+      required: [expoPushToken, platform]
+      additionalProperties: false
+      properties:
+        expoPushToken:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+    Device:
+      type: object
+      required: [expoPushToken, platform, lastSeenAt]
+      properties:
+        expoPushToken:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, web]
+        lastSeenAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    Event:
+      type: object
+      description: A master (recurring) or standalone event definition.
+      required:
+        - id
+        - ownerId
+        - title
+        - localStart
+        - localEnd
+        - timezoneId
+        - utcStart
+        - utcEnd
+        - isMaster
+        - visibility
+        - isVariableSchedule
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        ownerId:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        location:
+          type: [string, 'null']
+          maxLength: 300
+        localStart:
+          $ref: '#/components/schemas/LocalDateTime'
+        localEnd:
+          $ref: '#/components/schemas/LocalDateTime'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        utcStart:
+          allOf: [{ $ref: '#/components/schemas/IsoDateTime' }]
+          readOnly: true
+          description: Server-derived from localStart + timezoneId.
+        utcEnd:
+          allOf: [{ $ref: '#/components/schemas/IsoDateTime' }]
+          readOnly: true
+        isMaster:
+          type: boolean
+          description: True for masters and standalone events; exceptions are not exposed here.
+        recurrenceRule:
+          oneOf:
+            - $ref: '#/components/schemas/RRuleString'
+            - type: 'null'
+          description: Null for standalone (non-recurring) events.
+        isVariableSchedule:
+          type: boolean
+          default: false
+          description: |
+            Variable-schedule routine flag (M2). Occurrences are not pre-generated;
+            unentered weeks render as "Schedule not yet entered".
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        sharedWith:
+          type: array
+          description: User IDs for `shared_select` visibility; empty otherwise.
+          items:
+            $ref: '#/components/schemas/Uuid'
+        colorLabel:
+          type: [string, 'null']
+          description: UI color token/label for the event.
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+    EventCreate:
+      type: object
+      additionalProperties: false
+      required: [title, localStart, localEnd, timezoneId, visibility]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        location:
+          type: [string, 'null']
+          maxLength: 300
+        localStart:
+          $ref: '#/components/schemas/LocalDateTime'
+        localEnd:
+          $ref: '#/components/schemas/LocalDateTime'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        recurrenceRule:
+          oneOf:
+            - $ref: '#/components/schemas/RRuleString'
+            - type: 'null'
+        isVariableSchedule:
+          type: boolean
+          default: false
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        sharedWith:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+        colorLabel:
+          type: [string, 'null']
+    EventUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Partial update of a master/standalone event (ALL scope for recurring).
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        location:
+          type: [string, 'null']
+          maxLength: 300
+        localStart:
+          $ref: '#/components/schemas/LocalDateTime'
+        localEnd:
+          $ref: '#/components/schemas/LocalDateTime'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        recurrenceRule:
+          oneOf:
+            - $ref: '#/components/schemas/RRuleString'
+            - type: 'null'
+        isVariableSchedule:
+          type: boolean
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        sharedWith:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+        colorLabel:
+          type: [string, 'null']
+
+    OccurrenceOverride:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Per-occurrence edit (THIS scope). Only the provided fields differ from the master.
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        location:
+          type: [string, 'null']
+          maxLength: 300
+        localStart:
+          $ref: '#/components/schemas/LocalDateTime'
+        localEnd:
+          $ref: '#/components/schemas/LocalDateTime'
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        colorLabel:
+          type: [string, 'null']
+
+    EventOccurrence:
+      type: object
+      description: A concrete, expanded instance of an event (read-only output of expansion).
+      required:
+        [
+          eventId,
+          occurrenceDate,
+          title,
+          localStart,
+          localEnd,
+          timezoneId,
+          utcStart,
+          utcEnd,
+          visibility,
+          isException,
+        ]
+      properties:
+        eventId:
+          $ref: '#/components/schemas/Uuid'
+        occurrenceDate:
+          $ref: '#/components/schemas/IsoDate'
+        title:
+          type: string
+        description:
+          type: [string, 'null']
+        location:
+          type: [string, 'null']
+        localStart:
+          $ref: '#/components/schemas/LocalDateTime'
+        localEnd:
+          $ref: '#/components/schemas/LocalDateTime'
+        timezoneId:
+          $ref: '#/components/schemas/TimezoneId'
+        utcStart:
+          $ref: '#/components/schemas/IsoDateTime'
+        utcEnd:
+          $ref: '#/components/schemas/IsoDateTime'
+        visibility:
+          $ref: '#/components/schemas/Visibility'
+        colorLabel:
+          type: [string, 'null']
+        isException:
+          type: boolean
+          description: True if this occurrence was overridden from the master rule.
+    FriendOccurrence:
+      type: object
+      description: |
+        A friend's occurrence as seen by the caller. For `sensitive_public` events
+        the sensitive fields are stripped server-side and `redacted` is true.
+      required: [ownerId, occurrenceDate, utcStart, utcEnd, redacted]
+      properties:
+        ownerId:
+          $ref: '#/components/schemas/Uuid'
+        occurrenceDate:
+          $ref: '#/components/schemas/IsoDate'
+        title:
+          type: [string, 'null']
+          description: Present when shared; null/"Busy" when redacted.
+        location:
+          type: [string, 'null']
+        utcStart:
+          $ref: '#/components/schemas/IsoDateTime'
+        utcEnd:
+          $ref: '#/components/schemas/IsoDateTime'
+        colorLabel:
+          type: [string, 'null']
+        redacted:
+          type: boolean
+          description: True when this is a sensitive-public "Busy" block.
+
+    FriendCode:
+      type: object
+      required: [code, expiresAt, createdAt]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9]{8}$'
+          description: 8-character uppercase alphanumeric code.
+        expiresAt:
+          oneOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+            - type: 'null'
+          description: Null while active; set to the 30-day expiry once rotated out.
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    FriendSummary:
+      type: object
+      required: [id, username, displayName]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: [string, 'null']
+          format: uri
+    FriendConnection:
+      type: object
+      required: [id, friend, status, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        friend:
+          $ref: '#/components/schemas/FriendSummary'
+        status:
+          $ref: '#/components/schemas/FriendConnectionStatus'
+        lastActiveAt:
+          oneOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+            - type: 'null'
+          description: Only present if the friend opted in to last-active.
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    FriendRequestCreate:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9]{8}$'
+    FriendRequest:
+      type: object
+      required: [id, direction, counterparty, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        direction:
+          $ref: '#/components/schemas/FriendRequestDirection'
+        counterparty:
+          $ref: '#/components/schemas/FriendSummary'
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    ReportCreate:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          maxLength: 1000
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+
+    # --- Success envelopes (ApiResult<T>) -----------------------------------
+    EmptyResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        data:
+          type: 'null'
+    HealthResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/Health' }
+    ProfileResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/Profile' }
+    NotificationPreferenceResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/NotificationPreference' }
+    DeviceResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/Device' }
+    EventResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/Event' }
+    EventOccurrenceResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/EventOccurrence' }
+    FriendCodeResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/FriendCode' }
+    FriendConnectionResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/FriendConnection' }
+    FriendRequestResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/FriendRequest' }
+
+    # --- Paginated / list envelopes -----------------------------------------
+    EventPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Event' }
+        nextCursor:
+          type: [string, 'null']
+    EventPageResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/EventPage' }
+    FriendConnectionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FriendConnection' }
+        nextCursor:
+          type: [string, 'null']
+    FriendConnectionPageResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/FriendConnectionPage' }
+    OccurrenceListResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/EventOccurrence' }
+    FriendOccurrenceListResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/FriendOccurrence' }
+    FriendRequestListResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/FriendRequest' }

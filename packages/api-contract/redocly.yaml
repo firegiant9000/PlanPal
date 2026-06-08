@@ -1,0 +1,18 @@
+# Redocly lint config for the PlanPal contract.
+# `recommended` catches the common spec errors (broken refs, missing
+# descriptions, duplicate operationIds). We keep it strict but pragmatic.
+extends:
+  - recommended
+
+rules:
+  # Every operation must have a stable operationId — codegen + clients key on it.
+  operation-operationId: error
+  operation-operationId-unique: error
+  # Tags must be declared in the top-level `tags` list.
+  operation-tag-defined: error
+  # Don't require example objects on every schema (we provide them where useful).
+  no-unused-components: warn
+  # Servers are environment-templated; allow the {env} variable form.
+  no-server-variables-empty-enum: error
+  # Liveness/readiness probes legitimately have no 4xx response.
+  operation-4xx-response: off
