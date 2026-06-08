@@ -1,0 +1,39 @@
+{
+  "name": "planpal",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PlanPal monorepo — Expo (mobile) + Next.js (web) + shared packages, on Supabase.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "contract:validate": "turbo run validate --filter=@planpal/api-contract",
+    "contract:generate": "turbo run generate --filter=@planpal/api-contract",
+    "clean": "turbo run clean && rimraf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:start": "npx --yes supabase@latest start",
+    "db:stop": "npx --yes supabase@latest stop",
+    "db:reset": "npx --yes supabase@latest db reset",
+    "db:diff": "npx --yes supabase@latest db diff",
+    "db:push": "npx --yes supabase@latest db push"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@vitest/coverage-v8": "^2.1.3",
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0",
+    "prettier": "^3.3.3",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.11.0",
+    "vitest": "^2.1.3"
+  }
+}

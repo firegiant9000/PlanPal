@@ -1,0 +1,21 @@
+{
+  "name": "@planpal/api-contract",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PlanPal OpenAPI contract (Phase 1). Source of truth for endpoint shapes; generates the domain types consumed via @planpal/types.",
+  "files": [
+    "openapi.yaml"
+  ],
+  "scripts": {
+    "validate": "redocly lint openapi.yaml",
+    "generate": "openapi-typescript openapi.yaml --output ../types/src/generated/openapi.ts",
+    "build": "pnpm run generate",
+    "lint": "redocly lint openapi.yaml",
+    "clean": "rimraf .turbo *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.25.0",
+    "openapi-typescript": "^7.4.0",
+    "rimraf": "^6.0.1"
+  }
+}

@@ -1,0 +1,61 @@
+# Supabase local development config.
+# `project_id` is the local stack name only — each cloud environment
+# (dev / staging / prod) is a SEPARATE Supabase project linked via
+# `supabase link --project-ref <ref>`. Never share one project across envs.
+project_id = "planpal"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+# Local email testing inbox (captures auth emails locally).
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+# 5 MiB cap — avatars and schedule screenshots are small.
+file_size_limit = "5MiB"
+
+[auth]
+enabled = true
+# Local only. In cloud, set to the deployed app URL per environment.
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000", "planpal://"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+# --- External OAuth providers ---
+# Secrets are read from env vars (never commit them). The CLI expands
+# env(VAR) at runtime. Populate via the per-environment .env files.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_GOOGLE_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+[auth.external.apple]
+enabled = true
+client_id = "env(SUPABASE_AUTH_APPLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_APPLE_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"

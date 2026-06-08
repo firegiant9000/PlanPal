@@ -1,0 +1,35 @@
+{
+  "name": "@planpal/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PlanPal mobile app (Expo / React Native, expo-router). Implements the shared @planpal/ui contracts with native primitives.",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "eslint app src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf .expo .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@planpal/analytics": "workspace:*",
+    "@planpal/design-tokens": "workspace:*",
+    "@planpal/types": "workspace:*",
+    "@planpal/ui": "workspace:*",
+    "expo": "^53.0.0",
+    "expo-router": "^5.0.0",
+    "expo-status-bar": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-native": "^0.79.0",
+    "react-native-safe-area-context": "^5.0.0",
+    "react-native-screens": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.2"
+  }
+}

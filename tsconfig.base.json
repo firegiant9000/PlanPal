@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "@planpal/types": ["./packages/types/src"],
+      "@planpal/types/*": ["./packages/types/src/*"],
+      "@planpal/recurrence": ["./packages/recurrence/src"],
+      "@planpal/recurrence/*": ["./packages/recurrence/src/*"],
+      "@planpal/design-tokens": ["./packages/design-tokens/src"],
+      "@planpal/design-tokens/*": ["./packages/design-tokens/src/*"],
+      "@planpal/ui": ["./packages/ui/src"],
+      "@planpal/ui/*": ["./packages/ui/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", ".next", ".expo"]
+}
