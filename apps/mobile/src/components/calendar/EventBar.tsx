@@ -41,7 +41,7 @@ function eventColor(event: OccurrenceItem, colIndex: number): string {
   return EVENT_COLORS[colIndex % EVENT_COLORS.length]!;
 }
 
-export function EventBar({ event, hourHeight, topOffset, barHeight, column, totalColumns, onPress }: EventBarProps) {
+export function EventBar({ event, hourHeight: _hourHeight, topOffset, barHeight, column, totalColumns, onPress }: EventBarProps) {
   const isSensitive = event.visibility === 'sensitive_public';
   const color = eventColor(event, column);
   const colWidth = 1 / totalColumns;

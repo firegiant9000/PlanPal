@@ -11,14 +11,30 @@ export interface CalendarDay {
   isWeekend: boolean;
 }
 
-export const TODAY = fmtDate(new Date());
+/**
+ * Today's date in the device's local timezone.
+ *
+ * This is a function, not a module constant. A constant is evaluated once when
+ * the bundle loads, so a session left open across midnight (or a device that
+ * changes timezone mid-flight) keeps highlighting the wrong day until the app
+ * is force-quit.
+ */
+export function today(): string {
+  return fmtDate(new Date());
+}
 
 function fmtDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Build the 6×7 grid of days for a given (year, month). Grid starts on Sunday. */
+/**
+ * Build the 6x7 grid of days for a given (year, month). Grid starts on Sunday.
+ *
+ * Always six rows. Sizing the grid to the month (5 rows for a short month, 6
+ * for a long one) makes the whole sheet jump vertically when the user pages
+ * between months.
+ */
 export function buildMonthGrid(year: number, month: number): CalendarDay[][] {
   const firstOfMonth = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0).getDate();
@@ -40,11 +56,11 @@ export function buildMonthGrid(year: number, month: number): CalendarDay[][] {
     cells.push(makeDay(year, month, d, false));
   }
 
-  // Trailing days from next month.
+  // Trailing days from next month, padded to a fixed 6x7.
   const nextMonth = month === 12 ? 1 : month + 1;
   const nextYear = month === 12 ? year + 1 : year;
   let trail = 1;
-  while (cells.length % 7 !== 0 || cells.length < 35) {
+  while (cells.length < 42) {
     cells.push(makeDay(nextYear, nextMonth, trail++, true));
   }
 
@@ -66,20 +82,27 @@ function makeDay(year: number, month: number, day: number, isOutsideMonth: boole
     month,
     day,
     isOutsideMonth,
-    isToday: date === TODAY,
+    isToday: date === today(),
     isWeekend: dow === 0 || dow === 6,
   };
 }
 
-/** Seven days starting from a given Monday (or Sunday depending on locale). */
+/**
+ * The seven days of the week containing `anchorDate`, starting on Sunday.
+ *
+ * Day stepping goes through the Date constructor rather than adding
+ * 86_400_000ms to a local-time Date. On a DST boundary a "day" is 23 or 25
+ * hours long, so millisecond arithmetic silently lands on the wrong calendar
+ * date (and in zones that transition at midnight, skips a day outright).
+ */
 export function buildWeekDays(anchorDate: string): CalendarDay[] {
   const [y, m, d] = anchorDate.split('-').map(Number) as [number, number, number];
   const anchor = new Date(y, m - 1, d);
   const dow = anchor.getDay(); // 0=Sun
-  // Find the Sunday of this week.
-  const sunday = new Date(anchor.getTime() - dow * 86_400_000);
+
   return Array.from({ length: 7 }, (_, i) => {
-    const dt = new Date(sunday.getTime() + i * 86_400_000);
+    // Date normalizes out-of-range days (e.g. day 0 -> last day of prev month).
+    const dt = new Date(y, m - 1, d - dow + i);
     return makeDay(dt.getFullYear(), dt.getMonth() + 1, dt.getDate(), false);
   });
 }

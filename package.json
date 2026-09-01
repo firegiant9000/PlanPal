@@ -5,7 +5,7 @@
   "description": "PlanPal monorepo — Expo (mobile) + Next.js (web) + shared packages, on Supabase.",
   "packageManager": "pnpm@9.12.0",
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=22.0.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
@@ -16,6 +16,8 @@
     "test": "turbo run test",
     "contract:validate": "turbo run validate --filter=@planpal/api-contract",
     "contract:generate": "turbo run generate --filter=@planpal/api-contract",
+    "recurrence:sync": "node scripts/sync-recurrence-edge.mjs",
+    "recurrence:check": "node scripts/sync-recurrence-edge.mjs --check",
     "clean": "turbo run clean && rimraf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "db:start": "npx --yes supabase@latest start",

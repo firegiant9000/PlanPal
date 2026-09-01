@@ -16,7 +16,6 @@ import {
   Animated,
   Dimensions,
   PanResponder,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -25,7 +24,7 @@ import { theme } from '@planpal/ui';
 import { WeekStrip } from './WeekStrip';
 import { DayTimeSheet } from './DayTimeSheet';
 import type { OccurrenceItem } from './EventBar';
-import { TODAY } from '../../lib/calendarUtils';
+import { today } from '../../lib/calendarUtils';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const COLLAPSED_HEIGHT = 120; // WeekStrip + handle
@@ -40,7 +39,7 @@ interface CalendarBottomSheetProps {
 }
 
 export function CalendarBottomSheet({
-  initialDate = TODAY,
+  initialDate = today(),
   eventsByDate,
   onEventPress,
   onDateChange,

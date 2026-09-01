@@ -13,7 +13,6 @@ const HOUR_HEIGHT = 60; // px per hour
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const TOTAL_HEIGHT = 24 * HOUR_HEIGHT;
 
-const pad = (n: number) => String(n).padStart(2, '0');
 const fmtHour = (h: number) => {
   const ampm = h < 12 ? 'AM' : 'PM';
   const h12 = h % 12 === 0 ? 12 : h % 12;

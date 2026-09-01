@@ -10,13 +10,15 @@
  * lands in Month 3 once auth flows are complete.
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { StyleSheet, TouchableOpacity, View, Text, SafeAreaView } from 'react-native';
+import { StyleSheet, TouchableOpacity, Text, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { theme } from '@planpal/ui';
 import { MonthView } from '../src/components/calendar/MonthView';
 import { CalendarBottomSheet } from '../src/components/calendar/CalendarBottomSheet';
 import type { OccurrenceItem } from '../src/components/calendar/EventBar';
-import { TODAY } from '../src/lib/calendarUtils';
+import { today } from '../src/lib/calendarUtils';
+
+const TODAY_STUB = today();
 
 // ---------------------------------------------------------------------------
 // Stub events — replaced by GET /occurrences in Month 3.
@@ -24,10 +26,10 @@ import { TODAY } from '../src/lib/calendarUtils';
 const STUB_EVENTS: OccurrenceItem[] = [
   {
     eventId: 'stub-1',
-    occurrenceDate: TODAY,
+    occurrenceDate: TODAY_STUB,
     title: 'Morning standup',
-    localStart: `${TODAY}T09:30:00`,
-    localEnd: `${TODAY}T09:45:00`,
+    localStart: `${TODAY_STUB}T09:30:00`,
+    localEnd: `${TODAY_STUB}T09:45:00`,
     timezoneId: 'America/New_York',
     visibility: 'private',
     colorLabel: null,
@@ -36,10 +38,10 @@ const STUB_EVENTS: OccurrenceItem[] = [
   },
   {
     eventId: 'stub-2',
-    occurrenceDate: TODAY,
+    occurrenceDate: TODAY_STUB,
     title: 'Lunch',
-    localStart: `${TODAY}T12:00:00`,
-    localEnd: `${TODAY}T13:00:00`,
+    localStart: `${TODAY_STUB}T12:00:00`,
+    localEnd: `${TODAY_STUB}T13:00:00`,
     timezoneId: 'America/New_York',
     visibility: 'shared_all',
     colorLabel: '#30a46c',
@@ -54,7 +56,7 @@ export default function HomeScreen() {
   const todayDate = new Date();
   const [year, setYear] = useState(todayDate.getFullYear());
   const [month, setMonth] = useState(todayDate.getMonth() + 1);
-  const [selectedDate, setSelectedDate] = useState(TODAY);
+  const [selectedDate, setSelectedDate] = useState(() => today());
 
   const handlePrevMonth = useCallback(() => {
     if (month === 1) { setMonth(12); setYear((y) => y - 1); }

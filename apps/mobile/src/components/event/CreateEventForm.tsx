@@ -27,7 +27,7 @@ import {
   View,
 } from 'react-native';
 import { theme } from '@planpal/ui';
-import { TODAY } from '../../lib/calendarUtils';
+import { today } from '../../lib/calendarUtils';
 
 export type Visibility = 'private' | 'shared_all' | 'shared_select' | 'sensitive_public';
 
@@ -97,7 +97,7 @@ function buildRRule(repeat: RepeatOption, endRepeat: EndRepeatOption, endDate: s
 }
 
 export function CreateEventForm({
-  initialDate = TODAY,
+  initialDate = today(),
   timezoneId,
   onSubmit,
   onCancel,

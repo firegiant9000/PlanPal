@@ -3,6 +3,12 @@
 # Runs on every PR and on push to main: lint, type-check, unit/integration tests,
 # and a production build of the buildable workspaces (web + shared packages).
 # The contract-drift check lives in its own workflow (contract.yml).
+#
+# Two jobs, because the repo has two toolchains:
+#   verify         — the pnpm/Turborepo workspaces (apps + packages)
+#   edge-functions — supabase/functions, which runs on Deno and is NOT a pnpm
+#                    workspace. `turbo run lint|typecheck|test` cannot see it,
+#                    so before this job the Edge Functions had no gate at all.
 name: ci
 
 on:
@@ -22,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Enable corepack (pnpm)
         run: corepack enable
@@ -48,3 +54,26 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # The Edge Functions consume a generated mirror of packages/recurrence.
+      # If someone edits the engine without re-running the sync, the deployed
+      # backend silently expands recurrence differently from the tested code.
+      - name: Recurrence edge mirror is in sync
+        run: pnpm recurrence:check
+
+  edge-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Lint Edge Functions
+        working-directory: supabase/functions
+        run: deno lint
+
+      - name: Type-check Edge Functions
+        working-directory: supabase/functions
+        run: deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
