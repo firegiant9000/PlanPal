@@ -158,7 +158,7 @@ test('range validation rejects reversed and oversized windows', () => {
 });
 
 test('an unsupported RRULE surfaces loudly rather than dropping the event', () => {
-  const records = [master({ recurrenceRule: 'FREQ=MONTHLY;BYMONTHDAY=1' })];
+  const records = [master({ recurrenceRule: 'FREQ=DAILY;BYYEARDAY=1' })];
   assert.throws(() => expandOccurrences(records, { from: '2026-06-08', to: '2026-06-30' }), UnsupportedRRuleError);
 });
 

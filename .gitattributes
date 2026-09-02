@@ -1,0 +1,17 @@
+# Line endings for files under a byte-exact CI gate.
+#
+# Deliberately scoped rather than a repo-wide `* text=auto eol=lf`: a blanket
+# rule would re-normalize every tracked file at once and bury real changes in a
+# whole-repo diff. Only the generated artefacts that CI compares byte-for-byte
+# are pinned here.
+#
+# - contract.yml runs `git diff --exit-code` on the generated contract types.
+# - ci.yml runs `pnpm recurrence:check`, which compares the Edge mirror against
+#   packages/recurrence/src content-for-content.
+#
+# Without these, regenerating on Windows (core.autocrlf=true) rewrites every
+# line and the gate reports drift that isn't there.
+
+packages/types/src/generated/openapi.ts text eol=lf
+packages/recurrence/src/*.ts            text eol=lf
+supabase/functions/_shared/recurrence/*.ts text eol=lf

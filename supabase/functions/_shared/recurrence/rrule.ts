@@ -1,3 +1,9 @@
+// ---------------------------------------------------------------------------
+// GENERATED FILE — DO NOT EDIT.
+// Source: packages/recurrence/src/rrule.ts
+// Regenerate: pnpm recurrence:sync   (CI verifies with --check)
+// ---------------------------------------------------------------------------
+
 /**
  * RFC 5545 RRULE parsing + occurrence-date iteration.
  *
@@ -17,7 +23,7 @@
  * Unsupported (throws UnsupportedRRuleError, never silently drops):
  *   BYYEARDAY, BYWEEKNO
  */
-import { UnsupportedRRuleError } from './types.js';
+import { UnsupportedRRuleError } from './types.ts';
 
 /** JS weekday numbers: Sun=0 … Sat=6 (matches Date#getUTCDay). */
 export const BYDAY_TO_JS: Record<string, number> = {
