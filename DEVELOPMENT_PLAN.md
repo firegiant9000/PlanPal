@@ -115,7 +115,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 ## Month 3 (Weeks 9–12) — Auth, API surface, and the client foundation ⬅️ RESCOPED
 
 **Focus:** Connect the apps to the backend for the first time. Auth → API client → service layer is a strict chain; everything else waits on it.
-**Detail:** [MONTH_3_PLAN.md](MONTH_3_PLAN.md)
+**Detail:** [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) · [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 > **Why this month changed.** As originally written, M3 asked for full web parity, onboarding, settings, sensitive-public rendering, offline read-only, iCal export and timezone work — _and_ assumed auth was already done. With M2's auth debt and an API client the plan never listed, that is ~6–7 weeks of work in a 4-week slot. Two items moved to M4 (below) so the MVP gate can still hold.
 
@@ -162,7 +162,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 ## Month 4 (Weeks 13–16) — Spillover, then MVP Testing & Stabilisation ⬅️ RESCOPED
 
 **Focus:** Close the two items moved from M3 in weeks 13–14, then no new features: dogfood, bug-bash, hand to 10 real users, clear the gate.
-**Detail:** [MONTH_4_PLAN.md](MONTH_4_PLAN.md)
+**Detail:** [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) · [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 ### Weeks 13–14 — carried from M3
 

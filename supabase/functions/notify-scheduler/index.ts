@@ -263,7 +263,10 @@ async function collectCandidates(
   if (eventsErr) throw eventsErr;
 
   const rowsByOwner = new Map<string, EventRow[]>();
-  for (const row of (eventRows ?? []) as EventRow[]) {
+  // See the note in occurrences/index.ts: a runtime-built select list degrades
+  // supabase-js's inference to `GenericStringError[]`, so the widening cast is
+  // required until generated database types land.
+  for (const row of (eventRows ?? []) as unknown as EventRow[]) {
     const list = rowsByOwner.get(row.owner_id) ?? [];
     list.push(row);
     rowsByOwner.set(row.owner_id, list);

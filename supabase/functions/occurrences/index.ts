@@ -115,8 +115,12 @@ Deno.serve(async (req: Request) => {
   if (mastersRes.error) return dbError(mastersRes.error, 'occurrences:masters');
   if (exceptionsRes.error) return dbError(exceptionsRes.error, 'occurrences:exceptions');
 
-  const masters = (mastersRes.data ?? []) as EventRow[];
-  const exceptions = (exceptionsRes.data ?? []) as EventRow[];
+  // `as unknown as` is required, not laziness: supabase-js parses the select
+  // string at the type level, and a runtime-built column list (EVENT_COLUMNS)
+  // degrades its inference to `GenericStringError[]`. The real fix is generated
+  // database types (`supabase gen types typescript`), which is an M3 task.
+  const masters = (mastersRes.data ?? []) as unknown as EventRow[];
+  const exceptions = (exceptionsRes.data ?? []) as unknown as EventRow[];
   const records = [...masters, ...exceptions].map(mapEventRow);
 
   let items: OccurrenceResponseItem[];
