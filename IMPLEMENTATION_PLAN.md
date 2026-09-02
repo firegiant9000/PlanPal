@@ -2,7 +2,7 @@
 
 **Scope:** the engineering detail behind [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md). That document says _what_ and _when_; this one says _how_, with the interfaces, schemas and decisions settled up front so neither dev is inventing them mid-sprint.
 **Audience:** Arlo + Scott. Assumes the Month 2 branch (PR #2) is merged.
-**Status:** draft for review. Sections marked 🔸 need a decision from both devs before the dependent task starts.
+**Status:** §14's five open questions were all decided on 2026-09-02 — see that section for the record. Remaining 🔸 markers denote **contract changes** (AD-4, AD-8, §11) whose spec edits land in T9, not undecided questions.
 
 ---
 
@@ -32,7 +32,7 @@ packages/calendar-core  pure calendar maths + holidays         (zero dependencie
 
 They are split because they have different test strategies and different consumers. `calendar-core` is pure and unit-testable to a high bar; `api-client` needs mocking. Merging them would drag network mocks into what should be a pure-function suite.
 
-### AD-3 — Web parity via shared logic + separate views 🔸 _confirm_
+### AD-3 — Web parity via shared logic + separate views ✅ _confirmed 2026-09-02_
 
 **Not** `react-native-web`. RNW would need `transpilePackages` and a `react-native` → `react-native-web` alias in Next, has SSR pitfalls, ships a large bundle, and a `PanResponder` swipe-up sheet is not a desktop interaction.
 
@@ -277,7 +277,7 @@ One Edge Function per resource group, using the existing `_shared/auth.ts` and `
 | `friend-code` | `GET /friend-code`, `POST /friend-code/rotate`   | Rotate = stamp old `expires_at = now() + 30d`, insert new. Do it in one RPC — two statements race the partial unique index |
 | `export-ical` | `GET /export/ical`                               | Returns `text/calendar`; needs a raw-response path, not `ok()`                                                             |
 
-**`DELETE /me` is not trivial.** `public.users` cascades from `auth.users`, but the Edge Function's user-scoped client cannot delete an `auth.users` row. Options: a `SECURITY DEFINER` RPC that deletes the auth row (**with `revoke execute from public, anon, authenticated` and a `auth.uid() = p_user_id` guard inside**), or a service-role admin call. Prefer the RPC — the service role key does not belong in a user-facing function. The contract promises `202 Accepted`, so a soft-delete-then-purge is also acceptable; decide and document. 🔸
+**`DELETE /me` is not trivial.** `public.users` cascades from `auth.users`, but the Edge Function's user-scoped client cannot delete an `auth.users` row. **Decided 2026-09-02: a `SECURITY DEFINER` RPC performing a hard delete** — **with `revoke execute from public, anon, authenticated` and an `auth.uid() = p_user_id` guard inside, both in the same migration.** Not a service-role admin call: that key is scoped to `notify-scheduler` only (§3) and does not belong in a user-facing function. Not soft-delete-then-purge either — it would put a `deleted_at` filter on every read path, RLS policy and the scheduler, which is new surface to get wrong. Returns `202 Accepted` per the contract.
 
 **`export/ical` scope for M3:** `VEVENT` per master with `RRULE` passed through, `EXDATE` for cancelled occurrences, and a separate `VEVENT` with `RECURRENCE-ID` per override. Non-private events only. The standards-compliant hardening is M9.
 
@@ -382,11 +382,11 @@ Run `pnpm db:reset` after each to prove the chain applies from scratch.
 
 ## 11. Contract changes 🔸 _both-dev sign-off required_
 
-| Change                                                                      | Why                                                               |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Amend `PATCH /me` timezone description                                      | AD-4 — currently specifies behaviour that would corrupt calendars |
-| Add `ErrorCode` enum                                                        | AD-8 — the spec references an enum that exists nowhere            |
-| Add `isVariableSchedule` to `EventOccurrence`, or drop it from the response | The endpoint returns it, the schema omits it, mobile consumes it  |
+| Change                                                          | Why                                                               |
+| --------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Amend `PATCH /me` timezone description                          | AD-4 — currently specifies behaviour that would corrupt calendars |
+| Add `ErrorCode` enum                                            | AD-8 — the spec references an enum that exists nowhere            |
+| Add `isVariableSchedule` to `EventOccurrence` ✅ _decided: add_ | The endpoint returns it, the schema omits it, mobile consumes it  |
 
 Each: edit `openapi.yaml` → `pnpm contract:generate` → commit the regenerated types. `contract.yml` fails if they drift.
 
@@ -458,13 +458,15 @@ T3 (Apple) runs beside everything and gates T25/T26. If it slips, M4 slips regar
 
 ---
 
-## 14. Open questions 🔸
+## 14. Open questions — ✅ all resolved 2026-09-02
 
-1. **AD-3** — confirm shared-logic-and-separate-views over `react-native-web` before T17/T20 start.
-2. **`DELETE /me`** — `SECURITY DEFINER` RPC, or soft-delete-then-purge? The contract promises `202`, which permits either.
-3. **`isVariableSchedule`** — add to the contract, or drop from the response?
-4. **Android floor** — is Android 8 (API 26) still above the Expo SDK minimum in use? If not, the M4 device matrix and the plan's stated OS range both change.
-5. **Device sourcing** — seven physical devices, or a cloud farm? A farm runs real hardware and satisfies "not simulators" at a fraction of the cost, but it needs a budget line now, not in week 14.
+| #   | Question                 | Decision                                                                                                                                                                                                                                                                            |
+| --- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **AD-3**                 | **Confirmed as written** — shared logic in `calendar-core`, separate per-platform views. Not `react-native-web`. T17/T20 unblocked                                                                                                                                                  |
+| 2   | **`DELETE /me`**         | **`SECURITY DEFINER` RPC, hard delete.** Guarded by `auth.uid() = p_user_id` inside, with `revoke execute from public, anon, authenticated` in the same migration (§15). `public.users` cascades; returns `202`. No service-role key in a user-facing function. T14 unblocked       |
+| 3   | **`isVariableSchedule`** | **Add to the contract.** `is_variable_schedule` is already a real `not null default false` column on `events`, the endpoint emits it and mobile consumes it — so this documents shipped behaviour. P10 exercises variable schedules, so it is load-bearing this phase. T9 unblocked |
+| 4   | **Android floor**        | **No plan change.** `apps/mobile` pins `expo ^53.0.0` / `react-native ^0.79.0`; the SDK 53 floor is Android 7.0 (API 24) and iOS 15.1, so Android 8 (API 26) and iOS 16 both clear it. The §P11 matrix stands as written                                                            |
+| 5   | **Device sourcing**      | **Hybrid.** Both devs' own phones carry the dogfood window and the push-on-hardware gate (#3, #4) — those need devices in hand. Remaining matrix breadth runs on a cloud farm (Firebase Test Lab / BrowserStack). No procurement lead time                                          |
 
 ---
 
