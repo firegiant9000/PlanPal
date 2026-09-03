@@ -54,13 +54,22 @@ Correct model:
 
 **Action:** amend the `PATCH /me` description in the spec, regenerate types, and add a test asserting a profile timezone change leaves every `events` row untouched.
 
-### AD-5 — `utc_start`/`utc_end` are an index approximation, never user-visible
+### AD-5 — `utc_start`/`utc_end` are an index approximation, never user-visible ✅ _done 2026-09-03 (T16)_
 
-`events_derive_utc()` uses Postgres `AT TIME ZONE`; the engine applies an explicit gap/fold policy (gaps shift forward, folds take the earlier instant) and **ignores the stored value**. They can disagree by one hour, twice a year.
+`events_derive_utc()` uses Postgres `AT TIME ZONE`; the engine applies an explicit gap/fold policy (gaps shift forward, folds take the earlier instant) and **ignores the stored value**.
+
+**Measured in T16** (`supabase/tests/src/utc-authority.test.ts`), the divergence is narrower than this section originally assumed — once a year, not twice:
+
+| Case                                   | Engine            | Postgres          |        |
+| -------------------------------------- | ----------------- | ----------------- | ------ |
+| `2026-03-08 02:30` NY — spring **gap** | `07:30:00Z`       | `07:30:00Z`       | agree  |
+| `2026-11-01 01:30` NY — fall **fold**  | `05:30:00Z` (EDT) | `06:30:00Z` (EST) | **1h** |
+
+Postgres also resolves the gap forward, so only the fold differs.
 
 Rather than reimplement the engine's policy in PL/pgSQL, we declare the engine authoritative for anything a user sees, and `utc_*` authoritative only for range-scans and conflict detection.
 
-**Action:** update the column comments, and add a test asserting the two agree for all times outside a gap/fold hour.
+**Done:** `20260903000001_utc_index_approximation.sql` records the split authority on both columns and on `events_derive_utc()` itself; `utc-authority.test.ts` asserts agreement across 12 zone/date cases, pins the fold divergence at exactly one hour, and fails if the column comments stop naming which derivation wins.
 
 ### AD-6 — `apps/api` is deleted ✅ _done 2026-09-02 (T5)_
 

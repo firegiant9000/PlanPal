@@ -190,6 +190,10 @@ importers:
         version: 5.9.3
 
   supabase/tests:
+    dependencies:
+      '@planpal/recurrence':
+        specifier: workspace:^
+        version: link:../../packages/recurrence
     devDependencies:
       '@types/pg':
         specifier: ^8.23.1
