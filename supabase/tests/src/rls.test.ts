@@ -174,11 +174,31 @@ describe('notification_sends', () => {
 });
 
 describe('anonymous access', () => {
-  it('cannot read events with only the anon key', async () => {
+  it('is refused outright on events — anon holds no table grants', async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/events?select=*`, {
       headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
     });
-    const body = await res.json();
-    expect(Array.isArray(body) ? body : []).toEqual([]);
+    const body = (await res.json()) as { code?: string; message?: string };
+
+    // Asserted precisely, because an earlier version of this test coerced any
+    // non-array response to [] and so passed on the error object too — it would
+    // have gone green even if anon could read everything and the request simply
+    // failed for another reason. `anon` has zero grants in `public`, so this is
+    // 42501 at the grant layer, before RLS is consulted at all.
+    expect(Array.isArray(body)).toBe(false);
+    expect(res.status).toBe(401);
+    expect(body.code).toBe('42501');
+    expect(body.message).toMatch(/permission denied/i);
+  });
+
+  it('has no table grants in public at all', async () => {
+    // The property the test above depends on. If a future migration grants
+    // anon a table, that test would start exercising RLS instead of grants
+    // without anyone noticing the change in what is being proved.
+    const rows = await query<{ table_name: string }>(
+      `select table_name from information_schema.role_table_grants
+        where table_schema = 'public' and grantee = 'anon'`,
+    );
+    expect(rows.map((r) => r.table_name)).toEqual([]);
   });
 });

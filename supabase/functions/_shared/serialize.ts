@@ -105,3 +105,98 @@ export function toEventModel(row: EventRowFull): EventModel {
 export function toEventModels(rows: EventRowFull[]): EventModel[] {
   return rows.map(toEventModel);
 }
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+export interface UserRow {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  birthday: string | null;
+  default_visibility: string;
+  timezone_id: string;
+  last_active_opt_in: boolean;
+  last_active_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The `Profile` shape defined by openapi.yaml. */
+export interface ProfileModel {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+  birthday: string | null;
+  defaultVisibility: string;
+  timezoneId: string;
+  lastActiveOptIn: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toProfileModel(row: UserRow): ProfileModel {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    birthday: row.birthday,
+    defaultVisibility: row.default_visibility,
+    timezoneId: row.timezone_id,
+    lastActiveOptIn: row.last_active_opt_in,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    // `last_active_at` is deliberately not exposed. It is not in the Profile
+    // schema, and it is the field `lastActiveOptIn` exists to gate.
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Notification preferences
+// ---------------------------------------------------------------------------
+
+export interface NotificationPreferenceRow {
+  user_id: string;
+  lead_times_minutes: number[];
+  push_enabled: boolean;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  updated_at: string;
+}
+
+export interface NotificationPreferenceModel {
+  userId: string;
+  leadTimesMinutes: number[];
+  pushEnabled: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+  updatedAt: string;
+}
+
+/**
+ * Postgres `time` renders as `HH:MM:SS`, but the contract's quiet-hours pattern
+ * is `^\d{2}:\d{2}$`. Returning the column verbatim would emit `22:00:00` and
+ * fail its own schema, so trim to minutes.
+ */
+function toHhMm(value: string | null): string | null {
+  if (value === null) return null;
+  const match = /^(\d{2}):(\d{2})/.exec(value);
+  return match ? `${match[1]}:${match[2]}` : value;
+}
+
+export function toNotificationPreferenceModel(
+  row: NotificationPreferenceRow,
+): NotificationPreferenceModel {
+  return {
+    userId: row.user_id,
+    leadTimesMinutes: row.lead_times_minutes ?? [],
+    pushEnabled: row.push_enabled,
+    quietHoursStart: toHhMm(row.quiet_hours_start),
+    quietHoursEnd: toHhMm(row.quiet_hours_end),
+    updatedAt: row.updated_at,
+  };
+}

@@ -76,7 +76,9 @@ jobs:
 
       - name: Type-check Edge Functions
         working-directory: supabase/functions
-        run: deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
+        run: >
+          deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
+          me/index.ts healthz/index.ts
 
   # The only job that runs a database. Until it existed, nothing in CI ever
   # applied a migration or invoked a function — `verify` and `edge-functions`

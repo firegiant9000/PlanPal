@@ -1,0 +1,262 @@
+/**
+ * /me — the authenticated user's profile and notification preferences (M3, T10).
+ *
+ * Routes:
+ *   GET   /me                            the caller's profile
+ *   PATCH /me                            partial profile update
+ *   GET   /me/notification-preferences   reminder defaults
+ *   PUT   /me/notification-preferences   replace reminder defaults
+ *
+ * DELETE /me is defined by the contract but is NOT routed here yet — it needs a
+ * SECURITY DEFINER RPC to remove the `auth.users` row, which lands with T14.
+ * It therefore answers 405 rather than a 202 that deletes nothing, because a
+ * GDPR endpoint that reports success without deleting is the worse failure.
+ */
+import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getUserClient } from '../_shared/auth.ts';
+import {
+  badRequest,
+  conflict,
+  dbError,
+  handleOptions,
+  methodNotAllowed,
+  notFound,
+  ok,
+  unauthenticated,
+} from '../_shared/response.ts';
+import {
+  type NotificationPreferenceRow,
+  type UserRow,
+  toNotificationPreferenceModel,
+  toProfileModel,
+} from '../_shared/serialize.ts';
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const HHMM_RE = /^\d{2}:\d{2}$/;
+const VISIBILITIES = ['private', 'shared_all', 'shared_select', 'sensitive_public'];
+const MAX_LEAD_MINUTES = 40320; // matches the notification_preferences check constraint
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return handleOptions();
+
+  const auth = await getUserClient(req);
+  if (!auth) return unauthenticated();
+  const { client, userId } = auth;
+
+  const url = new URL(req.url);
+  const segments = url.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // segments[0] = "me", [1] = "notification-preferences"?
+  const sub = segments[1] ?? null;
+
+  if (sub === 'notification-preferences') {
+    if (req.method === 'GET') return getPreferences(client, userId);
+    if (req.method === 'PUT') return putPreferences(client, userId, req);
+    return methodNotAllowed();
+  }
+
+  if (sub !== null) return notFound('Route');
+
+  if (req.method === 'GET') return getProfile(client, userId);
+  if (req.method === 'PATCH') return patchProfile(client, userId, req);
+  return methodNotAllowed();
+});
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+
+async function getProfile(client: SupabaseClient, userId: string) {
+  const { data, error } = await client.from('users').select('*').eq('id', userId).maybeSingle();
+  if (error) return dbError(error, 'me:get');
+  // handle_new_user creates this row at signup. Its absence means the trigger
+  // did not run, which is a real fault worth surfacing rather than a 200 with
+  // an empty body.
+  if (!data) return notFound('Profile');
+  return ok(toProfileModel(data as unknown as UserRow));
+}
+
+async function patchProfile(client: SupabaseClient, userId: string, req: Request) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest('Request body must be valid JSON.');
+  }
+
+  const allowed: Record<string, string> = {
+    username: 'username',
+    displayName: 'display_name',
+    avatarUrl: 'avatar_url',
+    birthday: 'birthday',
+    defaultVisibility: 'default_visibility',
+    timezoneId: 'timezone_id',
+    lastActiveOptIn: 'last_active_opt_in',
+  };
+
+  const patch: Record<string, unknown> = {};
+  for (const [clientKey, dbKey] of Object.entries(allowed)) {
+    if (clientKey in body) patch[dbKey] = body[clientKey];
+  }
+  if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided.');
+
+  const validation = validateProfilePatch(body);
+  if (validation) return badRequest(validation);
+
+  // Username uniqueness is a UNIQUE constraint, so a race between check and
+  // write is possible. Rather than pre-check, let the constraint decide and
+  // map 23505 to 409 — the check-then-write version is wrong under concurrency
+  // and slower besides. dbError already maps it, but the generic wording
+  // ("That record already exists") is useless to a user typing a name.
+  const { data, error } = await client
+    .from('users')
+    .update(patch)
+    .eq('id', userId)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === '23505') return conflict('That username is already taken.');
+    return dbError(error, 'me:patch');
+  }
+  if (!data) return notFound('Profile');
+
+  return ok(toProfileModel(data as unknown as UserRow));
+}
+
+function validateProfilePatch(body: Record<string, unknown>): string | null {
+  if ('username' in body) {
+    const v = body.username;
+    if (typeof v !== 'string' || !USERNAME_RE.test(v)) {
+      return '"username" must be 3-30 characters, letters, digits or underscore.';
+    }
+  }
+  if ('displayName' in body) {
+    const v = body.displayName;
+    if (typeof v !== 'string' || v.length < 1 || v.length > 80) {
+      return '"displayName" must be 1-80 characters.';
+    }
+  }
+  if ('avatarUrl' in body && body.avatarUrl !== null) {
+    if (typeof body.avatarUrl !== 'string') return '"avatarUrl" must be a string or null.';
+  }
+  if ('birthday' in body && body.birthday !== null) {
+    if (typeof body.birthday !== 'string' || !DATE_RE.test(body.birthday)) {
+      return '"birthday" must be an ISO date (YYYY-MM-DD) or null.';
+    }
+  }
+  if ('defaultVisibility' in body) {
+    if (
+      typeof body.defaultVisibility !== 'string' ||
+      !VISIBILITIES.includes(body.defaultVisibility)
+    ) {
+      return `"defaultVisibility" must be one of: ${VISIBILITIES.join(', ')}.`;
+    }
+  }
+  if ('timezoneId' in body) {
+    const v = body.timezoneId;
+    if (typeof v !== 'string' || v.trim() === '') return '"timezoneId" must be an IANA zone id.';
+    // Validate here rather than letting an invalid zone reach the events
+    // trigger, where AT TIME ZONE raises and surfaces as an opaque 500 on a
+    // completely unrelated request later on.
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: v });
+    } catch {
+      return `"timezoneId" is not a recognised IANA timezone: ${v}`;
+    }
+  }
+  if ('lastActiveOptIn' in body && typeof body.lastActiveOptIn !== 'boolean') {
+    return '"lastActiveOptIn" must be a boolean.';
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Notification preferences
+// ---------------------------------------------------------------------------
+
+async function getPreferences(client: SupabaseClient, userId: string) {
+  const { data, error } = await client
+    .from('notification_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) return dbError(error, 'me:prefs:get');
+  if (!data) return notFound('Notification preferences');
+  return ok(toNotificationPreferenceModel(data as unknown as NotificationPreferenceRow));
+}
+
+async function putPreferences(client: SupabaseClient, userId: string, req: Request) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest('Request body must be valid JSON.');
+  }
+
+  const validation = validatePreferences(body);
+  if (validation) return badRequest(validation);
+
+  const row = {
+    user_id: userId,
+    lead_times_minutes: body.leadTimesMinutes as number[],
+    push_enabled: body.pushEnabled as boolean,
+    quiet_hours_start: (body.quietHoursStart as string | null) ?? null,
+    quiet_hours_end: (body.quietHoursEnd as string | null) ?? null,
+  };
+
+  // PUT is a replace, and handle_new_user already created the row, so this is
+  // an upsert on the primary key rather than an insert.
+  const { data, error } = await client
+    .from('notification_preferences')
+    .upsert(row, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) return dbError(error, 'me:prefs:put');
+  return ok(toNotificationPreferenceModel(data as unknown as NotificationPreferenceRow));
+}
+
+function validatePreferences(body: Record<string, unknown>): string | null {
+  const lead = body.leadTimesMinutes;
+  if (!Array.isArray(lead)) return '"leadTimesMinutes" is required and must be an array.';
+  // Validate against the column's check constraint BEFORE inserting. Letting
+  // Postgres reject it yields a 23514 that dbError maps to a generic 400 with
+  // no indication of which value was wrong.
+  for (const value of lead) {
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      return '"leadTimesMinutes" must contain whole numbers of minutes.';
+    }
+    if (value < 0 || value > MAX_LEAD_MINUTES) {
+      return `"leadTimesMinutes" values must be between 0 and ${MAX_LEAD_MINUTES} minutes.`;
+    }
+  }
+  if (new Set(lead).size !== lead.length) {
+    // Duplicates would fan out into duplicate sends per occurrence.
+    return '"leadTimesMinutes" must not contain duplicates.';
+  }
+
+  if (typeof body.pushEnabled !== 'boolean') {
+    return '"pushEnabled" is required and must be a boolean.';
+  }
+
+  for (const key of ['quietHoursStart', 'quietHoursEnd'] as const) {
+    const v = body[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || !HHMM_RE.test(v)) {
+      return `"${key}" must be "HH:mm" or null.`;
+    }
+    const [h, m] = v.split(':').map(Number);
+    if (h! > 23 || m! > 59) return `"${key}" is not a valid time of day.`;
+  }
+
+  // Both or neither: one half of a window is not a window, and the scheduler
+  // reads them as a pair.
+  const startSet = body.quietHoursStart !== undefined && body.quietHoursStart !== null;
+  const endSet = body.quietHoursEnd !== undefined && body.quietHoursEnd !== null;
+  if (startSet !== endSet) {
+    return 'Quiet hours need both "quietHoursStart" and "quietHoursEnd", or neither.';
+  }
+
+  return null;
+}

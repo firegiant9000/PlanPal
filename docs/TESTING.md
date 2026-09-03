@@ -78,14 +78,29 @@ still gets a green local `pnpm test`. CI runs it as its own `integration` job,
 which is the only job that starts a database — so it is also what proves the
 migration chain applies from scratch.
 
+**Adding a new Edge Function needs a stack restart, not just a file save.** The
+edge runtime enumerates function directories once, when `supabase start` runs,
+and passes that list to the container — so a brand-new `supabase/functions/<name>`
+answers `Function not found` until you run `pnpm db:stop && pnpm db:start`.
+Restarting the container alone is not enough; it reuses the same list. Edits to
+an _existing_ function do hot-reload, though the runtime can serve a cached
+isolate briefly, so a change that "did not take" is worth re-checking once
+before debugging it. CI is unaffected: its stack always starts fresh.
+
 Two conventions worth keeping:
 
 - **Each spec creates its own users** and deletes them in `afterAll`, rather
   than truncating shared tables. Specs stay independent without a global reset.
-- **A known defect is encoded with `it.fails`**, not a comment. It passes while
-  the bug exists and starts failing the moment the bug is fixed, which forces
-  the test to be promoted rather than left to rot. `contract-shape.test.ts`
-  uses this for the `POST /events` snake_case response.
+- **Encode a known defect with `it.fails`**, not a comment. It passes while the
+  bug exists and starts failing the moment the bug is fixed, which forces the
+  test to be promoted rather than left to rot. `contract-shape.test.ts` used
+  this to hold the `POST /events` snake_case response until it was serialised
+  properly; those are now ordinary assertions, which is how the pattern is
+  meant to end.
+- **Assert the shape of a failure, not just its absence.** An early version of
+  the anon-access test coerced any non-array response to `[]`, so it passed on
+  a `permission denied` error object and would have passed had anon been able
+  to read everything. It now asserts the status and SQLSTATE.
 
 ## Running tests
 
