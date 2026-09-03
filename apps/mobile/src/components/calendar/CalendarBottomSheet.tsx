@@ -12,19 +12,12 @@
  * planned for Post-V1 if more complex snap-point logic is needed.
  */
 import React, { useCallback, useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  PanResponder,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Dimensions, PanResponder, StyleSheet, Text, View } from 'react-native';
 import { theme } from '@planpal/ui';
 import { WeekStrip } from './WeekStrip';
 import { DayTimeSheet } from './DayTimeSheet';
 import type { OccurrenceItem } from './EventBar';
-import { today } from '../../lib/calendarUtils';
+import { today } from '@planpal/calendar-core';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const COLLAPSED_HEIGHT = 120; // WeekStrip + handle
@@ -104,11 +97,7 @@ export function CalendarBottomSheet({
 
       {/* Day time-sheet (only visible when expanded) */}
       {expanded && (
-        <DayTimeSheet
-          date={selectedDate}
-          events={dayEvents}
-          onEventPress={onEventPress}
-        />
+        <DayTimeSheet date={selectedDate} events={dayEvents} onEventPress={onEventPress} />
       )}
 
       {/* Collapsed hint */}

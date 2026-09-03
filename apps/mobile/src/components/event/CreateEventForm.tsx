@@ -27,14 +27,14 @@ import {
   View,
 } from 'react-native';
 import { theme } from '@planpal/ui';
-import { today } from '../../lib/calendarUtils';
+import { today } from '@planpal/calendar-core';
 
 export type Visibility = 'private' | 'shared_all' | 'shared_select' | 'sensitive_public';
 
 export interface CreateEventPayload {
   title: string;
   description: string;
-  localStart: string;  // YYYY-MM-DDTHH:mm:ss
+  localStart: string; // YYYY-MM-DDTHH:mm:ss
   localEnd: string;
   timezoneId: string;
   recurrenceRule: string | null;
@@ -79,7 +79,12 @@ const LEAD_TIME_OPTIONS = [
   { label: '1 day before', minutes: 1440 },
 ];
 
-function buildRRule(repeat: RepeatOption, endRepeat: EndRepeatOption, endDate: string, count: string): string | null {
+function buildRRule(
+  repeat: RepeatOption,
+  endRepeat: EndRepeatOption,
+  endDate: string,
+  count: string,
+): string | null {
   if (repeat === 'none' || repeat === 'variable') return null;
   let rule = '';
   if (repeat === 'daily') rule = 'FREQ=DAILY';
@@ -139,7 +144,22 @@ export function CreateEventForm({
       notificationLeadTimes: leadTimes,
     };
     onSubmit(payload);
-  }, [canSubmit, title, description, date, startTime, endTime, timezoneId, repeat, endRepeat, endDate, count, visibility, leadTimes, onSubmit]);
+  }, [
+    canSubmit,
+    title,
+    description,
+    date,
+    startTime,
+    endTime,
+    timezoneId,
+    repeat,
+    endRepeat,
+    endDate,
+    count,
+    visibility,
+    leadTimes,
+    onSubmit,
+  ]);
 
   return (
     <KeyboardAvoidingView
@@ -149,7 +169,10 @@ export function CreateEventForm({
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* Nav bar */}
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={onCancel} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity
+            onPress={onCancel}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             <Text style={styles.navCancel}>Cancel</Text>
           </TouchableOpacity>
           <Text style={styles.navTitle}>New Event</Text>
@@ -228,7 +251,10 @@ export function CreateEventForm({
                 <TouchableOpacity
                   key={opt}
                   style={[styles.optionRow, opt === repeat && styles.optionRowSelected]}
-                  onPress={() => { setRepeat(opt); setShowRepeatPicker(false); }}
+                  onPress={() => {
+                    setRepeat(opt);
+                    setShowRepeatPicker(false);
+                  }}
                 >
                   <Text style={[styles.optionText, opt === repeat && styles.optionTextSelected]}>
                     {REPEAT_LABELS[opt]}
@@ -241,7 +267,8 @@ export function CreateEventForm({
           {repeat === 'variable' && (
             <View style={styles.variableNote}>
               <Text style={styles.variableNoteText}>
-                Variable schedule — specific times are entered week by week. The event will show "Schedule not yet entered" until times are added.
+                Variable schedule — specific times are entered week by week. The event will show
+                "Schedule not yet entered" until times are added.
               </Text>
             </View>
           )}
@@ -315,9 +342,14 @@ export function CreateEventForm({
                 <TouchableOpacity
                   key={opt}
                   style={[styles.optionRow, opt === visibility && styles.optionRowSelected]}
-                  onPress={() => { setVisibility(opt); setShowVisibilityPicker(false); }}
+                  onPress={() => {
+                    setVisibility(opt);
+                    setShowVisibilityPicker(false);
+                  }}
                 >
-                  <Text style={[styles.optionText, opt === visibility && styles.optionTextSelected]}>
+                  <Text
+                    style={[styles.optionText, opt === visibility && styles.optionTextSelected]}
+                  >
                     {VISIBILITY_LABELS[opt]}
                   </Text>
                 </TouchableOpacity>

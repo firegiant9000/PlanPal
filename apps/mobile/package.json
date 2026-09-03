@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@planpal/analytics": "workspace:*",
+    "@planpal/calendar-core": "workspace:*",
     "@planpal/design-tokens": "workspace:*",
     "@planpal/types": "workspace:*",
     "@planpal/ui": "workspace:*",

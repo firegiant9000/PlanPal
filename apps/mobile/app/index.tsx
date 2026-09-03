@@ -16,7 +16,7 @@ import { theme } from '@planpal/ui';
 import { MonthView } from '../src/components/calendar/MonthView';
 import { CalendarBottomSheet } from '../src/components/calendar/CalendarBottomSheet';
 import type { OccurrenceItem } from '../src/components/calendar/EventBar';
-import { today } from '../src/lib/calendarUtils';
+import { currentYearMonth, today } from '@planpal/calendar-core';
 
 const TODAY_STUB = today();
 
@@ -53,19 +53,23 @@ const STUB_EVENTS: OccurrenceItem[] = [
 export default function HomeScreen() {
   const router = useRouter();
 
-  const todayDate = new Date();
-  const [year, setYear] = useState(todayDate.getFullYear());
-  const [month, setMonth] = useState(todayDate.getMonth() + 1);
+  const [initial] = useState(() => currentYearMonth());
+  const [year, setYear] = useState(initial.year);
+  const [month, setMonth] = useState(initial.month);
   const [selectedDate, setSelectedDate] = useState(() => today());
 
   const handlePrevMonth = useCallback(() => {
-    if (month === 1) { setMonth(12); setYear((y) => y - 1); }
-    else setMonth((m) => m - 1);
+    if (month === 1) {
+      setMonth(12);
+      setYear((y) => y - 1);
+    } else setMonth((m) => m - 1);
   }, [month]);
 
   const handleNextMonth = useCallback(() => {
-    if (month === 12) { setMonth(1); setYear((y) => y + 1); }
-    else setMonth((m) => m + 1);
+    if (month === 12) {
+      setMonth(1);
+      setYear((y) => y + 1);
+    } else setMonth((m) => m + 1);
   }, [month]);
 
   // Group stub events by date.

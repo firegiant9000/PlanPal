@@ -6,18 +6,14 @@
 import React, { useRef } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { theme } from '@planpal/ui';
-import { timeToHourFraction } from '../../lib/calendarUtils';
+import { fmtHourLabel, layoutDay } from '@planpal/calendar-core';
 import { EventBar, type OccurrenceItem } from './EventBar';
 
 const HOUR_HEIGHT = 60; // px per hour
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const TOTAL_HEIGHT = 24 * HOUR_HEIGHT;
-
-const fmtHour = (h: number) => {
-  const ampm = h < 12 ? 'AM' : 'PM';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12} ${ampm}`;
-};
+/** Below this a bar cannot show its title; a presentation floor, not maths. */
+const MIN_BAR_HEIGHT = 20;
 
 interface DayTimeSheetProps {
   date: string;
@@ -28,8 +24,10 @@ interface DayTimeSheetProps {
 export function DayTimeSheet({ events, onEventPress }: DayTimeSheetProps) {
   const scrollRef = useRef<ScrollView>(null);
 
-  // Lay out events in columns to handle overlaps.
-  const laid = layoutEvents(events);
+  // Overlap packing lives in @planpal/calendar-core so web cannot end up with
+  // a second, divergent copy (AD-3). It returns fractions of a 24-hour day;
+  // converting those to this sheet's pixel scale is the view's job.
+  const laid = layoutDay(events);
 
   return (
     <ScrollView
@@ -42,22 +40,22 @@ export function DayTimeSheet({ events, onEventPress }: DayTimeSheetProps) {
         {/* Hour rows */}
         {HOURS.map((h) => (
           <View key={h} style={[styles.hourRow, { top: h * HOUR_HEIGHT }]}>
-            <Text style={styles.hourLabel}>{fmtHour(h)}</Text>
+            <Text style={styles.hourLabel}>{fmtHourLabel(h)}</Text>
             <View style={styles.hourLine} />
           </View>
         ))}
 
         {/* Event bars */}
         <View style={styles.eventsLayer}>
-          {laid.map(({ event, top, height, column, totalColumns }) => (
+          {laid.map(({ occurrence, topFraction, heightFraction, column, columnCount }) => (
             <EventBar
-              key={`${event.eventId}-${event.occurrenceDate}`}
-              event={event}
+              key={`${occurrence.eventId}-${occurrence.occurrenceDate}`}
+              event={occurrence}
               hourHeight={HOUR_HEIGHT}
-              topOffset={top}
-              barHeight={height}
+              topOffset={topFraction * TOTAL_HEIGHT}
+              barHeight={Math.max(heightFraction * TOTAL_HEIGHT, MIN_BAR_HEIGHT)}
               column={column}
-              totalColumns={totalColumns}
+              totalColumns={columnCount}
               onPress={onEventPress}
             />
           ))}
@@ -65,56 +63,6 @@ export function DayTimeSheet({ events, onEventPress }: DayTimeSheetProps) {
       </View>
     </ScrollView>
   );
-}
-
-interface LaidEvent {
-  event: OccurrenceItem;
-  top: number;
-  height: number;
-  column: number;
-  totalColumns: number;
-}
-
-function layoutEvents(events: OccurrenceItem[]): LaidEvent[] {
-  // Sort by start time, then by end time descending.
-  const sorted = [...events]
-    .filter((e) => !e.isVariableSchedule)
-    .sort((a, b) => a.localStart.localeCompare(b.localStart));
-
-  const laid: LaidEvent[] = [];
-  // Columns: track which column each "slot" ends at.
-  const columns: number[] = []; // columns[i] = end fraction of column i's current event
-
-  for (const event of sorted) {
-    const startFrac = timeToHourFraction(event.localStart);
-    const endFrac = timeToHourFraction(event.localEnd);
-    const top = startFrac * HOUR_HEIGHT;
-    const height = Math.max((endFrac - startFrac) * HOUR_HEIGHT, 20);
-
-    // Find first available column.
-    let col = columns.findIndex((end) => end <= startFrac);
-    if (col === -1) { col = columns.length; columns.push(0); }
-    columns[col] = endFrac;
-
-    laid.push({ event, top, height, column: col, totalColumns: 0 });
-  }
-
-  // Second pass: set totalColumns = max column used in each overlapping group.
-  for (let i = 0; i < laid.length; i++) {
-    const { top: topA, height: hA, column: colA } = laid[i]!;
-    const endA = topA + hA;
-    let max = colA;
-    for (let j = 0; j < laid.length; j++) {
-      if (j === i) continue;
-      const { top: topB, height: hB, column: colB } = laid[j]!;
-      const endB = topB + hB;
-      // Overlapping?
-      if (topB < endA && topA < endB) max = Math.max(max, colB);
-    }
-    laid[i]!.totalColumns = max + 1;
-  }
-
-  return laid;
 }
 
 const styles = StyleSheet.create({

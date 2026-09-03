@@ -8,11 +8,6 @@
  * won't need years beyond that range in normal use.
  */
 
-export interface HolidayInfo {
-  name: string;
-  date: string; // YYYY-MM-DD observed date
-}
-
 type HolidaysByDate = Record<string, string>; // date → name
 
 function computeHolidays(year: number): HolidaysByDate {
@@ -54,15 +49,19 @@ function computeHolidays(year: number): HolidaysByDate {
   add(12, 25, 'Christmas Day');
 
   // Floating holidays.
-  const mlk = nthWeekday(1, 3, 1);      if (mlk) out[mlk] = "Martin Luther King Jr. Day";
-  const pres = nthWeekday(2, 3, 1);     if (pres) out[pres] = "Presidents' Day";
-  const mem = lastWeekday(5, 1);        if (mem) out[mem] = 'Memorial Day';
-  const labor = nthWeekday(9, 1, 1);   if (labor) out[labor] = 'Labor Day';
-  const colum = nthWeekday(10, 2, 1);  if (colum) out[colum] = 'Columbus Day';
-  const thanks = nthWeekday(11, 4, 4); if (thanks) out[thanks] = 'Thanksgiving Day';
+  const mlk = nthWeekday(1, 3, 1);
+  if (mlk) out[mlk] = 'Martin Luther King Jr. Day';
+  const pres = nthWeekday(2, 3, 1);
+  if (pres) out[pres] = "Presidents' Day";
+  const mem = lastWeekday(5, 1);
+  if (mem) out[mem] = 'Memorial Day';
+  const labor = nthWeekday(9, 1, 1);
+  if (labor) out[labor] = 'Labor Day';
+  const colum = nthWeekday(10, 2, 1);
+  if (colum) out[colum] = 'Columbus Day';
+  const thanks = nthWeekday(11, 4, 4);
+  if (thanks) out[thanks] = 'Thanksgiving Day';
 
-  // New Year's Eve observed (Dec 31 → Dec 31; only added if New Year's Day
-  // is observed on Monday, meaning NYE itself isn't typically a holiday).
   return out;
 }
 
@@ -85,7 +84,8 @@ const fmtDate = (d: Date): string => {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 };
 
-// Pre-compute for current year ± 2.
+// Memoised per year, computed on first request rather than pre-expanded for a
+// fixed range: a user paging back through 2019 should still see holidays.
 const cache = new Map<number, HolidaysByDate>();
 
 function getHolidays(year: number): HolidaysByDate {

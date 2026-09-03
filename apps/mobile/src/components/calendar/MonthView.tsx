@@ -9,15 +9,14 @@
  *   - Tap on a day → calls onDayPress to open the bottom sheet
  */
 import React from 'react';
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { theme } from '@planpal/ui';
-import { buildMonthGrid, fmtMonthHeader, type CalendarDay } from '../../lib/calendarUtils';
-import { getHolidayName } from '../../lib/usHolidays';
+import {
+  buildMonthGrid,
+  fmtMonthHeader,
+  getHolidayName,
+  type CalendarDay,
+} from '@planpal/calendar-core';
 
 export interface EventDot {
   date: string;
@@ -65,11 +64,17 @@ export function MonthView({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onPrevMonth} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity
+          onPress={onPrevMonth}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Text style={styles.navArrow}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.monthTitle}>{fmtMonthHeader(year, month)}</Text>
-        <TouchableOpacity onPress={onNextMonth} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity
+          onPress={onNextMonth}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Text style={styles.navArrow}>›</Text>
         </TouchableOpacity>
       </View>
