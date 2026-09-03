@@ -135,13 +135,22 @@ describe('POST /friend-code/rotate', () => {
   it('is race-free under concurrent rotation', async () => {
     // The reason rotation is one RPC. As an expire-then-insert pair from the
     // Edge Function, two simultaneous rotations both expire the same row and
-    // both insert, and the second violates
-    // friend_codes_one_active_per_user. Worse, an interruption between the two
-    // statements leaves the user with NO active code at all.
+    // both insert, and the second violates friend_codes_one_active_per_user.
+    // Worse, an interruption between the two statements leaves the user with
+    // NO active code at all.
+    //
+    // This caught a real bug that the first RPC did not fix: locking the
+    // active code row does not serialise anything, because the row stops
+    // matching `expires_at is null` the instant it is expired, and the blocked
+    // waiters are then released without a lock. It surfaced as a 409 on about
+    // one full-suite run in three. 20260903000005 locks the user row instead.
+    //
+    // Eight concurrent callers rather than five, because the failure was
+    // probabilistic and a thin test would let it back in unnoticed.
     const racer = await createTestUser('fc-race');
     try {
       const results = await Promise.all(
-        Array.from({ length: 5 }, () =>
+        Array.from({ length: 8 }, () =>
           callFn<FriendCode>('friend-code/rotate', {
             method: 'POST',
             token: racer.accessToken,
