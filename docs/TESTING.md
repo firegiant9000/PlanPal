@@ -6,11 +6,11 @@
 
 ## Test pyramid & targets
 
-| Layer | What it covers | Tooling | Where |
-|-------|----------------|---------|-------|
-| **Unit** | Pure logic: recurrence expansion, timezone math, redaction rules, token/contract invariants | Vitest (packages/apps) · `node:test` (recurrence) | `*.test.ts` beside source |
-| **Integration** | Edge Function routes against a real local Supabase (RLS, RPCs, triggers) | Vitest + Supabase CLI stack | `supabase/tests` (lands with T21) |
-| **E2E** | Critical user journeys (sign-up → create event → share) | Playwright (web) · Detox/Maestro (mobile) | added as real screens land (M3) |
+| Layer           | What it covers                                                                              | Tooling                                           | Where                           |
+| --------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------- |
+| **Unit**        | Pure logic: recurrence expansion, timezone math, redaction rules, token/contract invariants | Vitest (packages/apps) · `node:test` (recurrence) | `*.test.ts` beside source       |
+| **Integration** | Edge Function routes against a real local Supabase (RLS, RPCs, triggers)                    | Vitest + Supabase CLI stack                       | `supabase/tests`                |
+| **E2E**         | Critical user journeys (sign-up → create event → share)                                     | Playwright (web) · Detox/Maestro (mobile)         | added as real screens land (M3) |
 
 **Coverage targets**
 
@@ -24,14 +24,14 @@
 
 **These targets are now enforced, not just documented.** Until the M2 review they
 were aspirational: no `vitest.config.ts` set `coverage.thresholds`, and the `test`
-scripts ran `vitest run` *without* `--coverage`, so the numbers were never even
+scripts ran `vitest run` _without_ `--coverage`, so the numbers were never even
 computed. Nothing could fail a PR for missing the bar.
 
-| Package | Gate | Where |
-|---------|------|-------|
-| `@planpal/recurrence` | lines ≥ 90 · branches ≥ 85 · functions ≥ 90 | `node --test --test-coverage-*` flags in its `test` script |
-| `@planpal/analytics`, `@planpal/design-tokens` | 70 across all four metrics | `coverage.thresholds` in `vitest.config.ts` |
-| `@planpal/types` | *(none — deliberate)* | see below |
+| Package                                        | Gate                                        | Where                                                      |
+| ---------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------- |
+| `@planpal/recurrence`                          | lines ≥ 90 · branches ≥ 85 · functions ≥ 90 | `node --test --test-coverage-*` flags in its `test` script |
+| `@planpal/analytics`, `@planpal/design-tokens` | 70 across all four metrics                  | `coverage.thresholds` in `vitest.config.ts`                |
+| `@planpal/types`                               | _(none — deliberate)_                       | see below                                                  |
 
 `@planpal/types` has no threshold on purpose: it is almost entirely type
 declarations, which erase at compile time, so v8 reports 0% lines. A percentage
@@ -40,8 +40,7 @@ which fails if the generated types drift from `openapi.yaml`.
 
 Two caveats worth knowing:
 
-- The recurrence gate needs Node's `--test-coverage-lines` family, added in Node
-  22. The repo pin moved from Node 20 to 22 for this (Node 20 is also past EOL).
+- The recurrence gate needs Node's `--test-coverage-lines` family, added in Node 22. The repo pin moved from Node 20 to 22 for this (Node 20 is also past EOL).
 - Node's coverage reporter **omits files no test ever loaded**, so an entirely
   untested module is invisible rather than reported as 0%. `row.ts` sat at zero
   coverage while the package reported 96%. When adding a module, add at least one
@@ -49,23 +48,50 @@ Two caveats worth knowing:
 
 ## Edge Functions (`supabase/functions`)
 
-Deno, not Node — and *not* a pnpm workspace, so `turbo run lint|typecheck|test`
+Deno, not Node — and _not_ a pnpm workspace, so `turbo run lint|typecheck|test`
 cannot see it. Until the M2 review that meant the entire backend shipped with no
 gate at all. `ci.yml`'s `edge-functions` job now runs `deno lint` + `deno check`
 against `supabase/functions/deno.json`.
 
-There is still **no runtime test** for the Edge Functions — that needs the local
-Supabase stack and is tracked as M3 work. Treat `deno check` as a floor, not
-coverage.
+`deno check` proves a function compiles, never that it works. The runtime gate is
+the integration suite in `supabase/tests` (below).
 
 Recurrence logic must never be re-implemented inside a function. The functions
 import a generated mirror of `packages/recurrence` (`pnpm recurrence:sync`), and
 CI fails on drift via `pnpm recurrence:check`.
 
+## Integration suite (`supabase/tests`)
+
+Calls the Edge Functions over real HTTP against the local stack — no mocks, no
+importing a handler directly. Users are created through the GoTrue admin API so
+the `handle_new_user` trigger fires and the profile rows a real signup would
+produce exist.
+
+```bash
+pnpm db:start           # required: the suite needs Postgres + the edge runtime
+pnpm test:integration
+```
+
+It is **not** part of `pnpm test`. The package deliberately has no `test`
+script, so `turbo run test` skips it and a contributor without Docker running
+still gets a green local `pnpm test`. CI runs it as its own `integration` job,
+which is the only job that starts a database — so it is also what proves the
+migration chain applies from scratch.
+
+Two conventions worth keeping:
+
+- **Each spec creates its own users** and deletes them in `afterAll`, rather
+  than truncating shared tables. Specs stay independent without a global reset.
+- **A known defect is encoded with `it.fails`**, not a comment. It passes while
+  the bug exists and starts failing the moment the bug is fixed, which forces
+  the test to be promoted rather than left to rot. `contract-shape.test.ts`
+  uses this for the `POST /events` snake_case response.
+
 ## Running tests
 
 ```bash
 pnpm test                         # every workspace with a `test` script (via Turbo)
+pnpm test:integration             # Edge Functions vs the local stack (needs pnpm db:start)
 pnpm --filter @planpal/recurrence test
 pnpm exec vitest --coverage       # coverage for the Vitest packages
 pnpm recurrence:check             # Edge mirror of the recurrence engine is in sync

@@ -77,3 +77,42 @@ jobs:
       - name: Type-check Edge Functions
         working-directory: supabase/functions
         run: deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
+
+  # The only job that runs a database. Until it existed, nothing in CI ever
+  # applied a migration or invoked a function — `verify` and `edge-functions`
+  # are both static. That is how Month 2 shipped five criticals behind a green
+  # build: `deno check` proves a function compiles, never that it works.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Applies every migration from scratch, then serves the Edge Functions.
+      # A migration that cannot apply to an empty database fails here.
+      - name: Start local Supabase stack
+        run: supabase start
+
+      - name: Integration suite (invokes the functions over HTTP)
+        run: pnpm test:integration
+
+      - name: Stack logs on failure
+        if: failure()
+        run: supabase status && docker ps -a
+
+      - name: Stop stack
+        if: always()
+        run: supabase stop

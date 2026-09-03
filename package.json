@@ -14,6 +14,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:integration": "pnpm --filter @planpal/integration-tests test:integration",
     "contract:validate": "turbo run validate --filter=@planpal/api-contract",
     "contract:generate": "turbo run generate --filter=@planpal/api-contract",
     "recurrence:sync": "node scripts/sync-recurrence-edge.mjs",
