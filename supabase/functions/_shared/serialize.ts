@@ -156,6 +156,40 @@ export function toProfileModel(row: UserRow): ProfileModel {
 }
 
 // ---------------------------------------------------------------------------
+// Friend codes
+// ---------------------------------------------------------------------------
+
+export interface FriendCodeRow {
+  id: string;
+  user_id: string;
+  code: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * The `FriendCode` shape defined by openapi.yaml — three properties.
+ *
+ * `id` and `user_id` are not in the schema and are not exposed. The row id is
+ * of no use to a client that can only ever address its own code, and the owner
+ * is the caller by construction on this route.
+ */
+export interface FriendCodeModel {
+  code: string;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export function toFriendCodeModel(row: FriendCodeRow): FriendCodeModel {
+  return {
+    code: row.code,
+    // Null while active; set to the 30-day expiry once rotated out.
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Notification preferences
 // ---------------------------------------------------------------------------
 
