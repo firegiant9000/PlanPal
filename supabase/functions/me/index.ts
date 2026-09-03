@@ -25,8 +25,10 @@ import {
   unauthenticated,
 } from '../_shared/response.ts';
 import {
+  type DeviceRow,
   type NotificationPreferenceRow,
   type UserRow,
+  toDeviceModel,
   toNotificationPreferenceModel,
   toProfileModel,
 } from '../_shared/serialize.ts';
@@ -52,6 +54,22 @@ Deno.serve(async (req: Request) => {
   if (sub === 'notification-preferences') {
     if (req.method === 'GET') return getPreferences(client, userId);
     if (req.method === 'PUT') return putPreferences(client, userId, req);
+    return methodNotAllowed();
+  }
+
+  if (sub === 'devices') {
+    // The contract paths are /me/devices and /me/devices/{expoPushToken}, so
+    // they are served here rather than from a separate `devices` function as
+    // §6's table suggests. A function named `devices` would answer at
+    // /functions/v1/devices and the URL would no longer match the spec.
+    // A token can contain characters that must survive path encoding, so read
+    // the raw segment and decode it once.
+    const token = segments[2] ? decodeURIComponent(segments.slice(2).join('/')) : null;
+    if (token === null) {
+      if (req.method === 'POST') return registerDevice(client, userId, req);
+      return methodNotAllowed();
+    }
+    if (req.method === 'DELETE') return deregisterDevice(client, userId, token);
     return methodNotAllowed();
   }
 
@@ -169,6 +187,85 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
     return '"lastActiveOptIn" must be a boolean.';
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Devices
+// ---------------------------------------------------------------------------
+
+const PLATFORMS = ['ios', 'android', 'web'];
+
+async function registerDevice(client: SupabaseClient, userId: string, req: Request) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest('Request body must be valid JSON.');
+  }
+
+  const token = body.expoPushToken;
+  if (typeof token !== 'string' || token.trim() === '') {
+    return badRequest('"expoPushToken" is required.');
+  }
+  if (typeof body.platform !== 'string' || !PLATFORMS.includes(body.platform)) {
+    return badRequest(`"platform" must be one of: ${PLATFORMS.join(', ')}.`);
+  }
+
+  // expo_push_token is the PRIMARY KEY, so re-registering the same token is an
+  // upsert, not a duplicate row. Bumping last_seen_at on every registration is
+  // what lets the scheduler prune tokens that stopped checking in.
+  const { data, error } = await client
+    .from('devices')
+    .upsert(
+      {
+        expo_push_token: token,
+        user_id: userId,
+        platform: body.platform,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: 'expo_push_token' },
+    )
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    // A token already owned by a DIFFERENT user fails the RLS check on the
+    // existing row, which surfaces as 42501. dbError maps that to 403
+    // "you do not have access to that record", which is misleading here: the
+    // caller is perfectly entitled to register devices, and a developer seeing
+    // 403 on app launch will go looking for an auth bug. It is a conflict on a
+    // uniquely-owned resource — the same shape as a taken username.
+    //
+    // Answering 200 would be far worse than either: the phone would believe it
+    // is registered while `devices` still points at the previous owner, and the
+    // scheduler would push that person's reminders — event titles and times —
+    // to whoever is holding the handset now.
+    if (error.code === '42501') {
+      return conflict(
+        'That push token is registered to another account. Sign out on that account first.',
+      );
+    }
+    return dbError(error, 'me:devices:register');
+  }
+
+  if (!data) return conflict('That push token is registered to another account.');
+
+  return ok(toDeviceModel(data as unknown as DeviceRow));
+}
+
+async function deregisterDevice(client: SupabaseClient, userId: string, token: string) {
+  const { error } = await client
+    .from('devices')
+    .delete()
+    .eq('expo_push_token', token)
+    .eq('user_id', userId);
+
+  if (error) return dbError(error, 'me:devices:deregister');
+
+  // 202 whether or not a row matched. The contract says idempotent, and a
+  // sign-out that 404s because the token was already gone would make clients
+  // retry or surface an error for a no-op.
+  return ok(null, 202);
 }
 
 // ---------------------------------------------------------------------------

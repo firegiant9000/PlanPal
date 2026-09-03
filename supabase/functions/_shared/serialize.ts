@@ -188,6 +188,36 @@ function toHhMm(value: string | null): string | null {
   return match ? `${match[1]}:${match[2]}` : value;
 }
 
+// ---------------------------------------------------------------------------
+// Devices
+// ---------------------------------------------------------------------------
+
+export interface DeviceRow {
+  expo_push_token: string;
+  user_id: string;
+  platform: string;
+  last_seen_at: string;
+  created_at: string;
+}
+
+export interface DeviceModel {
+  expoPushToken: string;
+  userId: string;
+  platform: string;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+export function toDeviceModel(row: DeviceRow): DeviceModel {
+  return {
+    expoPushToken: row.expo_push_token,
+    userId: row.user_id,
+    platform: row.platform,
+    lastSeenAt: row.last_seen_at,
+    createdAt: row.created_at,
+  };
+}
+
 export function toNotificationPreferenceModel(
   row: NotificationPreferenceRow,
 ): NotificationPreferenceModel {

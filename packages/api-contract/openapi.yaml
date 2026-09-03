@@ -204,7 +204,16 @@ paths:
       tags: [notifications]
       summary: Register an Expo push token
       operationId: registerDevice
-      description: Idempotent on `expoPushToken`; re-registering refreshes platform/last-seen.
+      description: |
+        Idempotent on `expoPushToken`; re-registering refreshes platform/last-seen.
+
+        `expoPushToken` is the primary key, so a token belongs to exactly one
+        account. If a device is handed over — or a second user signs in on the
+        same handset — the token is unchanged and still bound to the first
+        account, and registration returns `409 CONFLICT`. Succeeding instead
+        would leave the scheduler pushing the previous owner's reminders, with
+        their event titles and times, to whoever now holds the device. The
+        client should deregister on sign-out so this does not arise.
       requestBody:
         required: true
         content:
@@ -222,6 +231,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /me/devices/{expoPushToken}:
     delete:

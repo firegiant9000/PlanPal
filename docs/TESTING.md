@@ -82,10 +82,16 @@ migration chain applies from scratch.
 edge runtime enumerates function directories once, when `supabase start` runs,
 and passes that list to the container — so a brand-new `supabase/functions/<name>`
 answers `Function not found` until you run `pnpm db:stop && pnpm db:start`.
-Restarting the container alone is not enough; it reuses the same list. Edits to
-an _existing_ function do hot-reload, though the runtime can serve a cached
-isolate briefly, so a change that "did not take" is worth re-checking once
-before debugging it. CI is unaffected: its stack always starts fresh.
+Restarting the container alone is not enough; it reuses the same list.
+
+Edits to an _existing_ function usually hot-reload, but **not reliably** — the
+runtime can keep serving a cached isolate of the previous code, so a test fails
+against a version of the handler you have already changed. If a change appears
+not to have taken effect, `docker restart supabase_edge_runtime_planpal` before
+debugging the code; it is much more often the isolate than the logic. The
+giveaway is a log line proving a branch ran that no longer exists in the file.
+
+CI is unaffected by both: its stack always starts fresh.
 
 Two conventions worth keeping:
 

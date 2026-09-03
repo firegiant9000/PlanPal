@@ -91,6 +91,14 @@ export interface paths {
         /**
          * Register an Expo push token
          * @description Idempotent on `expoPushToken`; re-registering refreshes platform/last-seen.
+         *
+         *     `expoPushToken` is the primary key, so a token belongs to exactly one
+         *     account. If a device is handed over — or a second user signs in on the
+         *     same handset — the token is unchanged and still bound to the first
+         *     account, and registration returns `409 CONFLICT`. Succeeding instead
+         *     would leave the scheduler pushing the previous owner's reminders, with
+         *     their event titles and times, to whoever now holds the device. The
+         *     client should deregister on sign-out so this does not arise.
          */
         post: operations["registerDevice"];
         delete?: never;
@@ -1100,6 +1108,7 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthenticated"];
+            409: components["responses"]["Conflict"];
         };
     };
     deregisterDevice: {
