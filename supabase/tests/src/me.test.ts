@@ -429,6 +429,58 @@ describe('GET/PUT /me/notification-preferences', () => {
   });
 });
 
+describe('malformed request bodies never escape as a bare 500', () => {
+  // `await req.json()` succeeds on any valid JSON document, not just an object.
+  // A body of literal `null` parsed cleanly and then threw
+  // "Cannot use 'in' operator ... in null" out of the handler, producing a 500
+  // with no error envelope at all. Found by review; guarded in _shared/body.ts.
+  const bodies: Array<[string, string]> = [
+    ['null', 'null'],
+    ['a bare array', '[]'],
+    ['a bare string', '"nope"'],
+    ['a bare number', '42'],
+    ['a bare boolean', 'true'],
+    ['truncated JSON', '{ "title": '],
+  ];
+
+  it.each(bodies)('PATCH /me rejects %s with 400', async (_label, raw) => {
+    const res = await callFn('me', { method: 'PATCH', token: user.accessToken, rawBody: raw });
+    expect(res.status, `got ${res.status}: ${res.text.slice(0, 200)}`).toBe(400);
+    expect(expectErr(res, 400).code).toBe('VALIDATION_ERROR');
+  });
+
+  it.each(bodies)('PUT /me/notification-preferences rejects %s with 400', async (_label, raw) => {
+    const res = await callFn('me/notification-preferences', {
+      method: 'PUT',
+      token: user.accessToken,
+      rawBody: raw,
+    });
+    expect(res.status, `got ${res.status}: ${res.text.slice(0, 200)}`).toBe(400);
+  });
+
+  it.each(bodies)('POST /me/devices rejects %s with 400', async (_label, raw) => {
+    const res = await callFn('me/devices', {
+      method: 'POST',
+      token: user.accessToken,
+      rawBody: raw,
+    });
+    expect(res.status, `got ${res.status}: ${res.text.slice(0, 200)}`).toBe(400);
+  });
+
+  it.each(bodies)('POST /events rejects %s with 400', async (_label, raw) => {
+    const res = await callFn('events', { method: 'POST', token: user.accessToken, rawBody: raw });
+    expect(res.status, `got ${res.status}: ${res.text.slice(0, 200)}`).toBe(400);
+  });
+
+  it('DELETE /me/devices/{token} rejects a malformed URL escape without a 500', async () => {
+    // decodeURIComponent throws URIError on a bad escape. Kong rejects most of
+    // these first, so assert only that it is a 4xx and never a 5xx.
+    const res = await callFn('me/devices/abc%zz', { method: 'DELETE', token: user.accessToken });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+  });
+});
+
 describe('DELETE /me', () => {
   it('405s until T14 lands the SECURITY DEFINER RPC', async () => {
     // Contract defines 202. Deliberately not stubbed: a GDPR deletion endpoint

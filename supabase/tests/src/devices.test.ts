@@ -10,12 +10,11 @@ import {
 } from './harness';
 import { query } from './db';
 
+/** Exactly the `Device` schema from openapi.yaml — three properties, no more. */
 interface Device {
   expoPushToken: string;
-  userId: string;
   platform: string;
   lastSeenAt: string;
-  createdAt: string;
 }
 
 let user: TestUser;
@@ -46,11 +45,21 @@ describe('POST /me/devices', () => {
       }),
     );
     expect(device.expoPushToken).toBe(token);
-    expect(device.userId).toBe(user.id);
     expect(device.platform).toBe('ios');
     // camelCase on the wire, no raw columns.
     expect(device).not.toHaveProperty('expo_push_token');
     expect(device).not.toHaveProperty('last_seen_at');
+    // And nothing beyond the schema. user_id and created_at exist on the row
+    // but are not in `Device`; emitting them would be undeclared drift that no
+    // gate can see, since the generated client type would not know about them.
+    expect(Object.keys(device).sort()).toEqual(['expoPushToken', 'lastSeenAt', 'platform']);
+
+    // The binding is still recorded — it is simply not on the wire.
+    const rows = await query<{ user_id: string }>(
+      `select user_id from public.devices where expo_push_token = $1`,
+      [token],
+    );
+    expect(rows[0]?.user_id).toBe(user.id);
   });
 
   it('is idempotent and refreshes platform and last_seen_at', async () => {
@@ -75,11 +84,17 @@ describe('POST /me/devices', () => {
 
     expect(second.platform).toBe('android');
     expect(Date.parse(second.lastSeenAt)).toBeGreaterThanOrEqual(Date.parse(first.lastSeenAt));
-    // created_at must survive the upsert; it is not re-set.
-    expect(second.createdAt).toBe(first.createdAt);
 
-    const rows = await query(`select 1 from public.devices where expo_push_token = $1`, [token]);
+    // created_at must survive the upsert rather than being re-stamped. It is
+    // not on the wire (not in the Device schema), so assert it at the row.
+    const rows = await query<{ created_at: Date }>(
+      `select created_at from public.devices where expo_push_token = $1`,
+      [token],
+    );
     expect(rows).toHaveLength(1);
+    expect(Date.parse(String(rows[0]!.created_at))).toBeLessThanOrEqual(
+      Date.parse(second.lastSeenAt),
+    );
   });
 
   it('400s an unknown platform', async () => {

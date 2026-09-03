@@ -12,6 +12,7 @@
  */
 import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getUserClient } from '../_shared/auth.ts';
+import { readJsonObject } from '../_shared/body.ts';
 import {
   badRequest,
   dbError,
@@ -56,7 +57,8 @@ Deno.serve(async (req: Request) => {
   // --- Occurrence sub-resource ---
   if (isOccurrencePath && occurrenceDate) {
     if (!DATE_RE.test(occurrenceDate)) return badRequest('Occurrence date must be YYYY-MM-DD.');
-    if (req.method === 'PUT') return upsertOccurrenceOverride(client, userId, eventId, occurrenceDate, req);
+    if (req.method === 'PUT')
+      return upsertOccurrenceOverride(client, userId, eventId, occurrenceDate, req);
     if (req.method === 'DELETE') return cancelOccurrence(client, userId, eventId, occurrenceDate);
     return methodNotAllowed();
   }
@@ -110,8 +112,8 @@ async function listEvents(client: SupabaseClient, userId: string, url: URL) {
 }
 
 async function createEvent(client: SupabaseClient, userId: string, req: Request) {
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const validation = validateEventWrite(body);
   if (validation) return badRequest(validation);
@@ -142,21 +144,20 @@ async function createEvent(client: SupabaseClient, userId: string, req: Request)
 
 async function getEvent(client: SupabaseClient, userId: string, eventId: string) {
   const { data, error } = await client
-    .from('events').select('*').eq('id', eventId).eq('owner_id', userId).maybeSingle();
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .maybeSingle();
   if (error) return dbError(error, 'events:get');
   if (!data) return notFound('Event');
   // Widening cast per AD-11; removed by T32.
   return ok(toEventModel(data as unknown as EventRowFull));
 }
 
-async function updateEvent(
-  client: SupabaseClient,
-  userId: string,
-  eventId: string,
-  req: Request,
-) {
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+async function updateEvent(client: SupabaseClient, userId: string, eventId: string, req: Request) {
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const allowed: Record<string, string> = {
     title: 'title',
@@ -183,7 +184,12 @@ async function updateEvent(
   if (validation) return badRequest(validation);
 
   const { data, error } = await client
-    .from('events').update(patch).eq('id', eventId).eq('owner_id', userId).select().maybeSingle();
+    .from('events')
+    .update(patch)
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .select()
+    .maybeSingle();
   if (error) return dbError(error, 'events:update');
   if (!data) return notFound('Event');
   // Widening cast per AD-11; removed by T32.
@@ -194,7 +200,11 @@ async function deleteEvent(client: SupabaseClient, userId: string, eventId: stri
   // `select()` so a delete that matched nothing is reported as 404 rather than
   // a misleading success.
   const { data, error } = await client
-    .from('events').delete().eq('id', eventId).eq('owner_id', userId).select('id');
+    .from('events')
+    .delete()
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .select('id');
   if (error) return dbError(error, 'events:delete');
   if (!data || data.length === 0) return notFound('Event');
   return ok({ deleted: true });
@@ -209,13 +219,17 @@ async function upsertOccurrenceOverride(
 ) {
   // Verify the master belongs to this user.
   const { data: master, error: masterErr } = await client
-    .from('events').select('id').eq('id', eventId).eq('owner_id', userId)
-    .eq('is_master', true).maybeSingle();
+    .from('events')
+    .select('id')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .eq('is_master', true)
+    .maybeSingle();
   if (masterErr) return dbError(masterErr, 'events:override:master');
   if (!master) return notFound('Event');
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const validation = validateOccurrenceOverride(body);
   if (validation) return badRequest(validation);
@@ -255,8 +269,12 @@ async function cancelOccurrence(
   date: string,
 ) {
   const { data: master, error: masterErr } = await client
-    .from('events').select('id').eq('id', eventId).eq('owner_id', userId)
-    .eq('is_master', true).maybeSingle();
+    .from('events')
+    .select('id')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .eq('is_master', true)
+    .maybeSingle();
   if (masterErr) return dbError(masterErr, 'events:cancel:master');
   if (!master) return notFound('Event');
 
@@ -346,14 +364,23 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
   if ('title' in body && (typeof body.title !== 'string' || body.title.trim() === '')) {
     return '"title" must be a non-empty string.';
   }
-  if ('localStart' in body && (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))) {
+  if (
+    'localStart' in body &&
+    (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))
+  ) {
     return '"localStart" must be YYYY-MM-DDTHH:mm[:ss].';
   }
-  if ('localEnd' in body && (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))) {
+  if (
+    'localEnd' in body &&
+    (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))
+  ) {
     return '"localEnd" must be YYYY-MM-DDTHH:mm[:ss].';
   }
-  if (typeof body.localStart === 'string' && typeof body.localEnd === 'string'
-      && body.localEnd <= body.localStart) {
+  if (
+    typeof body.localStart === 'string' &&
+    typeof body.localEnd === 'string' &&
+    body.localEnd <= body.localStart
+  ) {
     return '"localEnd" must be after "localStart".';
   }
   if ('timezoneId' in body) {
@@ -372,24 +399,36 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
 
 /** An override is sparse — every field is optional, but must be well-formed. */
 function validateOccurrenceOverride(body: Record<string, unknown>): string | null {
-  if ('localStart' in body && body.localStart !== null
-      && (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))) {
+  if (
+    'localStart' in body &&
+    body.localStart !== null &&
+    (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))
+  ) {
     return '"localStart" must be YYYY-MM-DDTHH:mm[:ss] or null.';
   }
-  if ('localEnd' in body && body.localEnd !== null
-      && (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))) {
+  if (
+    'localEnd' in body &&
+    body.localEnd !== null &&
+    (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))
+  ) {
     return '"localEnd" must be YYYY-MM-DDTHH:mm[:ss] or null.';
   }
-  if (typeof body.localStart === 'string' && typeof body.localEnd === 'string'
-      && body.localEnd <= body.localStart) {
+  if (
+    typeof body.localStart === 'string' &&
+    typeof body.localEnd === 'string' &&
+    body.localEnd <= body.localStart
+  ) {
     return '"localEnd" must be after "localStart".';
   }
   if ('timezoneId' in body && body.timezoneId !== null) {
     const tzError = validateTimezone(body.timezoneId);
     if (tzError) return tzError;
   }
-  if ('visibility' in body && body.visibility !== null
-      && !VISIBILITIES.includes(body.visibility as string)) {
+  if (
+    'visibility' in body &&
+    body.visibility !== null &&
+    !VISIBILITIES.includes(body.visibility as string)
+  ) {
     return `"visibility" must be one of: ${VISIBILITIES.join(', ')}.`;
   }
   return null;

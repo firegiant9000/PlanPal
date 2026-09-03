@@ -200,21 +200,26 @@ export interface DeviceRow {
   created_at: string;
 }
 
+/**
+ * The `Device` shape defined by openapi.yaml — exactly three properties.
+ *
+ * `user_id` and `created_at` are deliberately NOT exposed. They exist on the
+ * row but not in the schema, and emitting them would be the same undeclared
+ * drift as returning raw columns: invisible to the generated client type, and
+ * free to change without any gate noticing. `userId` is also redundant on a
+ * `/me/*` route, where the owner is the caller by construction.
+ */
 export interface DeviceModel {
   expoPushToken: string;
-  userId: string;
   platform: string;
   lastSeenAt: string;
-  createdAt: string;
 }
 
 export function toDeviceModel(row: DeviceRow): DeviceModel {
   return {
     expoPushToken: row.expo_push_token,
-    userId: row.user_id,
     platform: row.platform,
     lastSeenAt: row.last_seen_at,
-    createdAt: row.created_at,
   };
 }
 

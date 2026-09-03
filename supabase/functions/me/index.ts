@@ -14,6 +14,7 @@
  */
 import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getUserClient } from '../_shared/auth.ts';
+import { readJsonObject } from '../_shared/body.ts';
 import {
   badRequest,
   conflict,
@@ -63,8 +64,18 @@ Deno.serve(async (req: Request) => {
     // §6's table suggests. A function named `devices` would answer at
     // /functions/v1/devices and the URL would no longer match the spec.
     // A token can contain characters that must survive path encoding, so read
-    // the raw segment and decode it once.
-    const token = segments[2] ? decodeURIComponent(segments.slice(2).join('/')) : null;
+    // the raw segment and decode it once. decodeURIComponent throws URIError on
+    // a malformed escape; Kong rejects most of those before we see them, but an
+    // unguarded call here would escape the handler as a bare 500 rather than
+    // the error envelope.
+    let token: string | null = null;
+    if (segments[2]) {
+      try {
+        token = decodeURIComponent(segments.slice(2).join('/'));
+      } catch {
+        return badRequest('The push token in the path is not correctly URL-encoded.');
+      }
+    }
     if (token === null) {
       if (req.method === 'POST') return registerDevice(client, userId, req);
       return methodNotAllowed();
@@ -95,12 +106,8 @@ async function getProfile(client: SupabaseClient, userId: string) {
 }
 
 async function patchProfile(client: SupabaseClient, userId: string, req: Request) {
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return badRequest('Request body must be valid JSON.');
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const allowed: Record<string, string> = {
     username: 'username',
@@ -196,12 +203,8 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
 const PLATFORMS = ['ios', 'android', 'web'];
 
 async function registerDevice(client: SupabaseClient, userId: string, req: Request) {
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return badRequest('Request body must be valid JSON.');
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const token = body.expoPushToken;
   if (typeof token !== 'string' || token.trim() === '') {
@@ -284,12 +287,8 @@ async function getPreferences(client: SupabaseClient, userId: string) {
 }
 
 async function putPreferences(client: SupabaseClient, userId: string, req: Request) {
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return badRequest('Request body must be valid JSON.');
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const validation = validatePreferences(body);
   if (validation) return badRequest(validation);
