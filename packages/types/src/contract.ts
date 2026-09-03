@@ -13,6 +13,13 @@ import type { components } from './generated/openapi';
 
 type Schemas = components['schemas'];
 
+/**
+ * The closed set of `ApiError.code` values (AD-8). Generated, so adding a code
+ * to `openapi.yaml` is what widens it — a client `switch` over these is
+ * exhaustively checked rather than a `string` comparison that silently rots.
+ */
+export type ApiErrorCode = Schemas['ErrorCode'];
+
 export type Profile = Schemas['Profile'];
 export type ProfileUpdate = Schemas['ProfileUpdate'];
 

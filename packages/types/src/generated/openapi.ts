@@ -42,8 +42,21 @@ export interface paths {
         head?: never;
         /**
          * Update the authenticated user's profile
-         * @description Partial update. Changing `timezoneId` triggers server-side recomputation of
-         *     `utcStart`/`utcEnd` for all of the user's events (see the timezone note).
+         * @description Partial update.
+         *
+         *     **Changing `timezoneId` does not modify any stored event.** The profile
+         *     timezone is the default applied to *new* events and the zone the calendar
+         *     is displayed in — nothing more. A 9am New York meeting stays 9am New York
+         *     after the user flies to London; rewriting `utcStart`/`utcEnd` on their
+         *     whole calendar would move every appointment they own.
+         *
+         *     The genuine recompute cases are elsewhere:
+         *
+         *     - changing an *individual* event's `timezoneId` recomputes that event's
+         *       `utcStart`/`utcEnd`, via the `events_derive_utc` trigger;
+         *     - a tzdata release that changes a country's DST rules staleness-dates
+         *       future events, which is a maintenance job rather than a side effect of
+         *       a profile edit.
          */
         patch: operations["updateMe"];
         trace?: never;
@@ -472,9 +485,15 @@ export interface components {
         FriendConnectionStatus: "pending" | "accepted" | "blocked";
         /** @enum {string} */
         FriendRequestDirection: "incoming" | "outgoing";
+        /**
+         * @description Stable, machine-readable error code. Clients switch on this, never on
+         *     `message`. Values are UPPER_SNAKE_CASE, matching what the Edge Functions
+         *     emit from `_shared/response.ts`.
+         * @enum {string}
+         */
+        ErrorCode: "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "VALIDATION_ERROR" | "CONFLICT" | "METHOD_NOT_ALLOWED" | "RATE_LIMITED" | "INTERNAL_ERROR";
         ApiError: {
-            /** @description Stable, machine-readable error code (see enum in README). */
-            code: string;
+            code: components["schemas"]["ErrorCode"];
             /** @description Developer-facing message; not necessarily user-facing. */
             message: string;
             /** @description Optional field-level validation messages. */
@@ -632,6 +651,15 @@ export interface components {
             colorLabel?: string | null;
             /** @description True if this occurrence was overridden from the master rule. */
             isException: boolean;
+            /**
+             * @description True when the master event is a variable-schedule placeholder whose
+             *     concrete times are not yet known. The expansion engine skips such
+             *     masters, so a single placeholder occurrence is synthesised for the
+             *     range instead; clients render a "schedule not yet entered" state
+             *     rather than a timed block. `localStart`/`localEnd` are present but
+             *     carry no meaning when this is true.
+             */
+            isVariableSchedule: boolean;
         };
         /**
          * @description A friend's occurrence as seen by the caller. For `sensitive_public` events
@@ -782,7 +810,7 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "validation_error",
+                 *         "code": "VALIDATION_ERROR",
                  *         "message": "One or more fields are invalid.",
                  *         "details": {
                  *           "localEnd": [
@@ -805,7 +833,7 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "unauthenticated",
+                 *         "code": "UNAUTHENTICATED",
                  *         "message": "Authentication required."
                  *       }
                  *     }
@@ -823,7 +851,7 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "forbidden",
+                 *         "code": "FORBIDDEN",
                  *         "message": "You do not have access to this resource."
                  *       }
                  *     }
@@ -841,7 +869,7 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "not_found",
+                 *         "code": "NOT_FOUND",
                  *         "message": "Resource not found."
                  *       }
                  *     }
@@ -849,7 +877,12 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description Conflicts with current state (e.g. already friends, username taken). */
+        /**
+         * @description Conflicts with current state — a username already taken, an occurrence
+         *     exception that already exists, or (from M6) an existing friend
+         *     connection. The distinguishing detail belongs in `message`/`details`;
+         *     the code stays `CONFLICT`.
+         */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -859,8 +892,8 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "already_friends",
-                 *         "message": "You are already connected."
+                 *         "code": "CONFLICT",
+                 *         "message": "That username is already taken."
                  *       }
                  *     }
                  */
@@ -879,7 +912,7 @@ export interface components {
                  * @example {
                  *       "ok": false,
                  *       "error": {
-                 *         "code": "rate_limited",
+                 *         "code": "RATE_LIMITED",
                  *         "message": "Too many requests. Try again later."
                  *       }
                  *     }

@@ -39,11 +39,11 @@ const DAY_MS = 86_400_000;
 /**
  * The engine's `EventOccurrence` plus the variable-schedule marker.
  *
- * NOTE (contract drift, needs both-dev sign-off before it is resolved):
- * `isVariableSchedule` is NOT in `packages/api-contract/openapi.yaml`'s
- * `EventOccurrence` schema, but the mobile calendar consumes it to render the
- * "Schedule not yet entered" state. Either add it to the spec and regenerate
- * types, or drop the placeholder from this response — do not leave it drifted.
+ * `isVariableSchedule` is part of the contract as of T9 — it is a required
+ * property of `EventOccurrence` in `packages/api-contract/openapi.yaml`, so
+ * this shape and the generated `@planpal/types` model agree. Keep it required:
+ * the mobile calendar reads it to render the "schedule not yet entered" state,
+ * and an optional field would make that a silent undefined.
  */
 interface OccurrenceResponseItem {
   eventId: string;

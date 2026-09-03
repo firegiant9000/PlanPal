@@ -3,9 +3,15 @@
  * concrete request/response payloads are filled in by the Phase 1 OpenAPI spec.
  */
 
+import type { ApiErrorCode } from './contract';
+
 export interface ApiError {
-  /** Stable, machine-readable code. Enumerated authoritatively in the OpenAPI spec. */
-  code: string;
+  /**
+   * Stable, machine-readable code, enumerated authoritatively in the OpenAPI
+   * spec and generated from it (AD-8). Narrower than `string` on purpose: the
+   * whole point is that a client can `switch` on this exhaustively.
+   */
+  code: ApiErrorCode;
   /** Human-readable message for developers/logs (not necessarily user-facing). */
   message: string;
   /** Optional field-level validation details. */
