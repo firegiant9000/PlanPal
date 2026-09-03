@@ -49,7 +49,7 @@ describe('POST /events', () => {
     expect(created.id).toEqual(expect.any(String));
   });
 
-  it('derives utc_* from localStart + timezoneId', async () => {
+  it('derives utcStart from localStart + timezoneId', async () => {
     const res = await callFn<Record<string, unknown>>('events', {
       method: 'POST',
       token: user.accessToken,
@@ -61,7 +61,7 @@ describe('POST /events', () => {
     });
     const created = expectOk(res, 201);
     // January in New York is UTC-5, so 09:00 local is 14:00Z.
-    expect(String(created.utc_start)).toContain('14:00:00');
+    expect(String(created.utcStart)).toContain('14:00:00');
   });
 
   it('rejects a malformed JSON body with 400', async () => {

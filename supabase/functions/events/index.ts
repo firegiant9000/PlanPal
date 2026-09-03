@@ -22,6 +22,7 @@ import {
   unauthenticated,
 } from '../_shared/response.ts';
 import { parseRRule, UnsupportedRRuleError } from '../_shared/recurrence/index.ts';
+import { type EventRowFull, toEventModel, toEventModels } from '../_shared/serialize.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
@@ -104,7 +105,8 @@ async function listEvents(client: SupabaseClient, userId: string, url: URL) {
   const page = hasMore ? items.slice(0, limit) : items;
   const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
 
-  return ok({ items: page, nextCursor });
+  // Widening cast per AD-11; removed by T32.
+  return ok({ items: toEventModels(page as unknown as EventRowFull[]), nextCursor });
 }
 
 async function createEvent(client: SupabaseClient, userId: string, req: Request) {
@@ -132,7 +134,10 @@ async function createEvent(client: SupabaseClient, userId: string, req: Request)
 
   const { data, error } = await client.from('events').insert(row).select().single();
   if (error) return dbError(error, 'events:create');
-  return ok(data, 201);
+  // Widening cast: supabase-js degrades `.select()` inference to
+  // GenericStringError when the column list is not a literal. Removed by T32
+  // (generated database types) — see AD-11.
+  return ok(toEventModel(data as unknown as EventRowFull), 201);
 }
 
 async function getEvent(client: SupabaseClient, userId: string, eventId: string) {
@@ -140,7 +145,8 @@ async function getEvent(client: SupabaseClient, userId: string, eventId: string)
     .from('events').select('*').eq('id', eventId).eq('owner_id', userId).maybeSingle();
   if (error) return dbError(error, 'events:get');
   if (!data) return notFound('Event');
-  return ok(data);
+  // Widening cast per AD-11; removed by T32.
+  return ok(toEventModel(data as unknown as EventRowFull));
 }
 
 async function updateEvent(
@@ -180,7 +186,8 @@ async function updateEvent(
     .from('events').update(patch).eq('id', eventId).eq('owner_id', userId).select().maybeSingle();
   if (error) return dbError(error, 'events:update');
   if (!data) return notFound('Event');
-  return ok(data);
+  // Widening cast per AD-11; removed by T32.
+  return ok(toEventModel(data as unknown as EventRowFull));
 }
 
 async function deleteEvent(client: SupabaseClient, userId: string, eventId: string) {
@@ -237,7 +244,8 @@ async function upsertOccurrenceOverride(
     .single();
 
   if (error) return dbError(error, 'events:override');
-  return ok(data);
+  // Widening cast per AD-11; removed by T32.
+  return ok(toEventModel(data as unknown as EventRowFull));
 }
 
 async function cancelOccurrence(
