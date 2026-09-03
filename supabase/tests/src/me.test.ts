@@ -482,11 +482,110 @@ describe('malformed request bodies never escape as a bare 500', () => {
 });
 
 describe('DELETE /me', () => {
-  it('405s until T14 lands the SECURITY DEFINER RPC', async () => {
-    // Contract defines 202. Deliberately not stubbed: a GDPR deletion endpoint
-    // that reports success without deleting is worse than one that is honestly
-    // absent. This test flips to expecting 202 when T14 lands.
-    const res = await callFn('me', { method: 'DELETE', token: user.accessToken });
-    expect(expectErr(res, 405).code).toBe('METHOD_NOT_ALLOWED');
+  it('deletes the account and everything cascading from it', async () => {
+    const doomed = await createTestUser('me-delete');
+
+    // Give them a row in every table that hangs off the account, so "cascade
+    // verified, no orphans" is measured rather than assumed.
+    expectOk(
+      await callFn<Record<string, unknown>>('events', {
+        method: 'POST',
+        token: doomed.accessToken,
+        body: {
+          title: 'Will be erased',
+          localStart: '2026-09-07T09:00:00',
+          localEnd: '2026-09-07T09:30:00',
+          timezoneId: 'America/New_York',
+          visibility: 'private',
+        },
+      }),
+      201,
+    );
+    expectOk(
+      await callFn('me/devices', {
+        method: 'POST',
+        token: doomed.accessToken,
+        body: { expoPushToken: `ExponentPushToken[del-${doomed.id}]`, platform: 'ios' },
+      }),
+    );
+
+    const before = await query<{ t: string; n: string }>(
+      `
+      select 'events' as t, count(*)::text as n from public.events where owner_id = $1
+      union all select 'devices', count(*)::text from public.devices where user_id = $1
+      union all select 'friend_codes', count(*)::text from public.friend_codes where user_id = $1
+      union all select 'notification_preferences', count(*)::text
+        from public.notification_preferences where user_id = $1
+      union all select 'users', count(*)::text from public.users where id = $1
+      union all select 'auth_users', count(*)::text from auth.users where id = $1
+      `,
+      [doomed.id],
+    );
+    // Every table must actually have had a row, or the cascade proves nothing.
+    for (const row of before) {
+      expect(Number(row.n), `${row.t} had no row to delete`).toBeGreaterThan(0);
+    }
+
+    const res = await callFn('me', { method: 'DELETE', token: doomed.accessToken });
+    expect(res.status, `got ${res.status}: ${res.text.slice(0, 200)}`).toBe(202);
+
+    const after = await query<{ t: string; n: string }>(
+      `
+      select 'events' as t, count(*)::text as n from public.events where owner_id = $1
+      union all select 'devices', count(*)::text from public.devices where user_id = $1
+      union all select 'friend_codes', count(*)::text from public.friend_codes where user_id = $1
+      union all select 'notification_preferences', count(*)::text
+        from public.notification_preferences where user_id = $1
+      union all select 'users', count(*)::text from public.users where id = $1
+      union all select 'auth_users', count(*)::text from auth.users where id = $1
+      `,
+      [doomed.id],
+    );
+    for (const row of after) {
+      expect(Number(row.n), `${row.t} left an orphan`).toBe(0);
+    }
+  });
+
+  it('removes the auth row, not just the profile', async () => {
+    // Deleting public.users alone would leave a login that works against a
+    // profile that no longer exists — the failure this RPC exists to avoid.
+    const doomed = await createTestUser('me-delete-auth');
+    const res = await callFn('me', { method: 'DELETE', token: doomed.accessToken });
+    expect(res.status).toBe(202);
+
+    const rows = await query(`select 1 from auth.users where id = $1`, [doomed.id]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("cannot delete anyone else's account", async () => {
+    // delete_me() takes no arguments and reads auth.uid() itself, so there is
+    // no parameter to point elsewhere. Assert the outcome, not the signature.
+    const bystander = await createTestUser('me-delete-bystander');
+    const doomed = await createTestUser('me-delete-caller');
+    try {
+      expect((await callFn('me', { method: 'DELETE', token: doomed.accessToken })).status).toBe(
+        202,
+      );
+
+      const survivors = await query(`select 1 from auth.users where id = $1`, [bystander.id]);
+      expect(survivors, 'an unrelated account was deleted').toHaveLength(1);
+    } finally {
+      await deleteTestUser(bystander.id);
+    }
+  });
+
+  it('401s without a user token', async () => {
+    const res = await callFn('me', { method: 'DELETE', token: ANON_KEY });
+    expect(expectErr(res, 401).code).toBe('UNAUTHENTICATED');
+  });
+
+  it('leaves the session unable to act afterwards', async () => {
+    // The JWT is still cryptographically valid until it expires, but the user
+    // behind it is gone. Whatever the exact status, it must not be a success.
+    const doomed = await createTestUser('me-delete-session');
+    expect((await callFn('me', { method: 'DELETE', token: doomed.accessToken })).status).toBe(202);
+
+    const after = await callFn('me', { token: doomed.accessToken });
+    expect(after.status).toBeGreaterThanOrEqual(400);
   });
 });

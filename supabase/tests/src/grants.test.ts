@@ -20,6 +20,22 @@ import { requireLocalStack } from './harness';
 
 const END_USER_ROLES = ['public', 'anon', 'authenticated'] as const;
 
+/**
+ * The only SECURITY DEFINER functions an end-user role may execute, each with
+ * the reason it is safe. Anything not listed here is a finding.
+ *
+ * Adding an entry is a deliberate, reviewable act. Forgetting a `revoke` is
+ * not — that asymmetry is the whole point of the audit, and it is why this is
+ * an allowlist rather than a looser rule.
+ */
+const ALLOWED_END_USER_SECDEF: Record<string, string> = {
+  'public.delete_me() -> authenticated':
+    'GDPR erasure must be callable by the account holder, and a user-scoped ' +
+    'client has no rights in the auth schema. The function takes no arguments ' +
+    'and reads auth.uid() internally, so every caller can only delete ' +
+    'themselves — there is no target to point elsewhere.',
+};
+
 /** User-facing tables: RLS enabled *and* at least one policy. */
 const RLS_TABLES = [
   'users',
@@ -63,7 +79,47 @@ describe('SECURITY DEFINER grant audit', () => {
 
     // Name the offenders in the failure, not just a count — the M2 fix missed
     // three functions precisely because nothing listed them.
-    expect(rows.map((r) => `${r.fn} -> ${r.role}`)).toEqual([]);
+    const found = rows.map((r) => `${r.fn} -> ${r.role}`);
+    const unexplained = found.filter((entry) => !(entry in ALLOWED_END_USER_SECDEF));
+    expect(unexplained).toEqual([]);
+  });
+
+  it('the allowlist has no stale entries', async () => {
+    // An allowlist that outlives the grant it excuses is worse than none: it
+    // quietly pre-approves whatever takes that name next.
+    const rows = await query<{ fn: string; role: string }>(
+      `
+      select format('%I.%I(%s)', n.nspname, p.proname,
+                    pg_get_function_identity_arguments(p.oid)) as fn,
+             r.role
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        cross join unnest($1::text[]) as r(role)
+       where p.prosecdef
+         and n.nspname = 'public'
+         and has_function_privilege(r.role, p.oid, 'EXECUTE')
+      `,
+      [END_USER_ROLES],
+    );
+    const found = new Set(rows.map((r) => `${r.fn} -> ${r.role}`));
+    for (const entry of Object.keys(ALLOWED_END_USER_SECDEF)) {
+      expect(found.has(entry), `allowlist entry no longer applies: ${entry}`).toBe(true);
+    }
+  });
+
+  it('delete_me is the only allowed exception, and it takes no target', async () => {
+    // The allowlist's justification rests on the signature: a function with no
+    // parameter cannot be aimed at another account. If someone adds one, the
+    // reasoning collapses and this fails.
+    const [row] = await query<{ args: string }>(
+      `
+      select pg_get_function_identity_arguments(p.oid) as args
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'delete_me'
+      `,
+    );
+    expect(row?.args).toBe('');
+    expect(Object.keys(ALLOWED_END_USER_SECDEF)).toHaveLength(1);
   });
 
   it('still exposes those functions to the roles that legitimately need them', async () => {

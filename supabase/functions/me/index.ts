@@ -88,6 +88,7 @@ Deno.serve(async (req: Request) => {
 
   if (req.method === 'GET') return getProfile(client, userId);
   if (req.method === 'PATCH') return patchProfile(client, userId, req);
+  if (req.method === 'DELETE') return deleteAccount(client);
   return methodNotAllowed();
 });
 
@@ -194,6 +195,27 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
     return '"lastActiveOptIn" must be a boolean.';
   }
   return null;
+}
+
+/**
+ * DELETE /me — GDPR erasure.
+ *
+ * Delegates to `public.delete_me()`, which is SECURITY DEFINER because a
+ * user-scoped client has no rights in the `auth` schema, and the row that
+ * matters is `auth.users` — everything else cascades from it. Deleting only
+ * `public.users` would leave a working login with no profile.
+ *
+ * The RPC takes no arguments and reads auth.uid() itself, so this cannot be
+ * aimed at another account. See 20260903000004.
+ */
+async function deleteAccount(client: SupabaseClient) {
+  const { error } = await client.rpc('delete_me');
+  if (error) return dbError(error, 'me:delete');
+
+  // 202 per the contract. The work is in fact synchronous — the cascade
+  // completes before this returns — but the contract promises Accepted, and
+  // committing to 200 would rule out ever moving the purge to a background job.
+  return ok(null, 202);
 }
 
 // ---------------------------------------------------------------------------
