@@ -11,6 +11,8 @@
     "clean": "rimraf .turbo coverage *.tsbuildinfo"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.6.2",
     "vitest": "^2.1.3"
