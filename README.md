@@ -29,13 +29,13 @@ Full setup, repo layout, and the migration strategy are in
 ```
 apps/web                Next.js (App Router) — build-verified scaffold
 apps/mobile             Expo / React Native (expo-router) scaffold
-apps/api                Supabase Edge Functions (placeholder until Phase 1 API)
 packages/api-contract   OpenAPI spec — the integration contract (Phase 1)
 packages/types          shared TS contract types
 packages/design-tokens  design system primitives
 packages/ui             shared component contracts + theme
 packages/analytics      typed KPI event contracts + client
 packages/recurrence     server-side recurrence engine (Phase 4 kickoff)
+supabase/functions      the API — Edge Functions (Deno), not a pnpm workspace
 supabase/               local config, migrations, RLS
 ```
 

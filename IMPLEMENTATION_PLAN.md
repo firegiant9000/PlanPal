@@ -62,7 +62,7 @@ Rather than reimplement the engine's policy in PL/pgSQL, we declare the engine a
 
 **Action:** update the column comments, and add a test asserting the two agree for all times outside a gap/fold hour.
 
-### AD-6 — `apps/api` is deleted
+### AD-6 — `apps/api` is deleted ✅ _done 2026-09-02 (T5)_
 
 It holds a 14-line file that explicitly is not a runtime entry point, while the real backend lives in `supabase/functions`. A placeholder workspace mirroring nothing is how the duplicate engine happened. Delete it; `supabase/functions` is the API.
 

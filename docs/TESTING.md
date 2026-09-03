@@ -9,7 +9,7 @@
 | Layer | What it covers | Tooling | Where |
 |-------|----------------|---------|-------|
 | **Unit** | Pure logic: recurrence expansion, timezone math, redaction rules, token/contract invariants | Vitest (packages/apps) · `node:test` (recurrence) | `*.test.ts` beside source |
-| **Integration** | API endpoints against a real local Supabase (RLS, RPCs, triggers) | Vitest + Supabase CLI stack | `apps/api` (lands with the API, post-Phase 1) |
+| **Integration** | Edge Function routes against a real local Supabase (RLS, RPCs, triggers) | Vitest + Supabase CLI stack | `supabase/tests` (lands with T21) |
 | **E2E** | Critical user journeys (sign-up → create event → share) | Playwright (web) · Detox/Maestro (mobile) | added as real screens land (M3) |
 
 **Coverage targets**

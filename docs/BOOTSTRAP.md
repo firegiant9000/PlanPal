@@ -55,8 +55,9 @@ docs/             this runbook, environments, secrets policy
 
 As of Phase 3, `apps/web` (Next.js) and `apps/mobile` (Expo) are real scaffolds:
 each renders a token-driven screen implementing the shared `@planpal/ui` contracts
-(`Button`/`Text`) so the two platforms stay consistent. `apps/api` remains a thin
-placeholder (`wiring.smoke.ts`) until the Phase 1 OpenAPI contract is implemented.
+(`Button`/`Text`) so the two platforms stay consistent. The API is
+`supabase/functions` — Edge Functions on Deno, which is **not** a pnpm workspace
+and is gated by its own `edge-functions` CI job rather than by `turbo run`.
 
 Run the apps locally:
 
