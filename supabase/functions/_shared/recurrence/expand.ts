@@ -149,13 +149,20 @@ export function expandOccurrences(records: readonly EventRecord[], range: DateRa
     const exceptions = exceptionsByMaster.get(rec.id);
 
     if (rec.isVariableSchedule) {
-      // A variable master has no expandable rule, but each non-cancelled
-      // exception row IS a concrete week the user filled in. Without this the
-      // filled-in week vanished: the engine skipped the master and the
-      // /occurrences placeholder pass skips overridden dates.
+      // A variable master has no expandable rule, but an exception row that
+      // supplies concrete times IS a week the user has filled in. Without this
+      // the filled-in week vanished: the engine skipped the master and the
+      // /occurrences placeholder pass skips dates it expects the engine to emit.
+      //
+      // `localStart` is the test, not merely "an exception exists". A variable
+      // master's own localStart is a PLACEHOLDER the engine must never present
+      // as a real time, so a title-only override would otherwise produce a
+      // timed occurrence at a fabricated hour and silently destroy the
+      // "schedule not yet entered" state for that week. Such a row stays with
+      // the placeholder pass, which layers its fields on instead.
       if (exceptions) {
         for (const [dateStr, exception] of exceptions) {
-          if (exception.isCancelled) continue;
+          if (exception.isCancelled || exception.localStart == null) continue;
           const dateMs = parseDateOnly(dateStr, 'recurrenceExceptionDate');
           if (dateMs < fromMs || dateMs > toMs) continue;
           out.push(buildOccurrence(rec, dateMs, exception));

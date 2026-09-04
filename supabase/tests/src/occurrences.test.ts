@@ -296,6 +296,33 @@ describe('occurrence override (PATCH) and cancel (DELETE)', () => {
     expect(items.some((o) => o.occurrenceDate === '2026-09-21' && o.isVariableSchedule)).toBe(true);
   });
 
+  it('keeps a title-only override on a variable week as an un-entered placeholder', async () => {
+    // The engine and the /occurrences placeholder pass partition these dates
+    // between them, and the split is on whether the exception carries concrete
+    // TIMES. An override that only renames the week must not become a timed
+    // occurrence at the master's placeholder hour — that invents a schedule the
+    // user never entered — but it must not vanish either.
+    const master = await createMaster({
+      title: 'Var shift',
+      isVariableSchedule: true,
+      recurrenceRule: null,
+    });
+    expectOk(
+      await callFn(`events/${master.id}/occurrences/2026-09-14`, {
+        method: 'PATCH',
+        token: user.accessToken,
+        body: { title: 'Renamed week' },
+      }),
+    );
+
+    const items = (await range('2026-09-01', '2026-09-30')).filter((o) => o.eventId === master.id);
+    const forDate = items.filter((o) => o.occurrenceDate === '2026-09-14');
+    // Exactly one row — not a placeholder AND an engine occurrence.
+    expect(forDate, 'a renamed variable week must appear exactly once').toHaveLength(1);
+    expect(forDate[0]?.title).toBe('Renamed week');
+    expect(forDate[0]?.isVariableSchedule, 'the schedule is still not entered').toBe(true);
+  });
+
   it('merges consecutive overrides instead of resetting unmentioned fields', async () => {
     const master = await createMaster({ recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO' });
     expectOk(
@@ -333,6 +360,81 @@ describe('occurrence override (PATCH) and cancel (DELETE)', () => {
       body: {},
     });
     expect(expectErr(empty, 400).code).toBe('VALIDATION_ERROR');
+  });
+
+  it('does not lose a concurrent edit to a different field', async () => {
+    // The merge used to happen in the Edge Function between a read and an
+    // upsert, which is a lost update: both requests read the same prior row,
+    // each rebuilt the whole row from it, and the second write reverted the
+    // first's field. Measured at 5 losses in 12 rounds before the fix, so a
+    // single round would not have been evidence either way.
+    const master = await createMaster({ recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO' });
+    const date = '2026-09-14';
+    let lost = 0;
+    const ROUNDS = 8;
+
+    for (let i = 0; i < ROUNDS; i++) {
+      // Clear the exception row so each round starts from the master.
+      await callFn(`events/${master.id}/occurrences/${date}`, {
+        method: 'DELETE',
+        token: user.accessToken,
+      });
+
+      const [a, b] = await Promise.all([
+        callFn(`events/${master.id}/occurrences/${date}`, {
+          method: 'PATCH',
+          token: user.accessToken,
+          body: { title: `Concurrent ${i}` },
+        }),
+        callFn(`events/${master.id}/occurrences/${date}`, {
+          method: 'PATCH',
+          token: user.accessToken,
+          body: { localStart: '2026-09-14T15:00:00', localEnd: '2026-09-14T16:00:00' },
+        }),
+      ]);
+      expect(a.status, 'both writes must succeed').toBe(200);
+      expect(b.status, 'both writes must succeed').toBe(200);
+
+      const merged = expectOk<{ title: string; localStart: string }>(
+        await callFn(`events/${master.id}/occurrences/${date}`, {
+          method: 'PATCH',
+          token: user.accessToken,
+          body: { location: 'read-back' },
+        }),
+      );
+      if (merged.title !== `Concurrent ${i}` || !merged.localStart.includes('15:00')) lost++;
+    }
+
+    expect(lost, `${lost}/${ROUNDS} rounds lost an edit`).toBe(0);
+  });
+
+  it('rejects an inherited Object.prototype key as an unknown field', async () => {
+    // `in` walks the prototype chain, so {"toString": 1} read as a known
+    // field: it set nothing, yet still upserted is_cancelled:false — quietly
+    // reinstating a cancelled occurrence and answering 200.
+    const master = await createMaster({ recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO' });
+    expectOk(
+      await callFn(`events/${master.id}/occurrences/2026-09-14`, {
+        method: 'DELETE',
+        token: user.accessToken,
+      }),
+      202,
+    );
+
+    for (const key of ['toString', 'constructor', 'hasOwnProperty']) {
+      const res = await callFn(`events/${master.id}/occurrences/2026-09-14`, {
+        method: 'PATCH',
+        token: user.accessToken,
+        body: { [key]: 1 },
+      });
+      expect(expectErr(res, 400).code, `${key} must be rejected`).toBe('VALIDATION_ERROR');
+    }
+
+    // And the cancellation still stands.
+    const dates = (await range('2026-09-01', '2026-09-30'))
+      .filter((o) => o.eventId === master.id)
+      .map((o) => o.occurrenceDate);
+    expect(dates).not.toContain('2026-09-14');
   });
 
   it('rejects a merged override that would end before it starts', async () => {

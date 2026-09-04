@@ -270,3 +270,15 @@ test('a variable-schedule master with no exceptions still expands to nothing', (
   const records = [master({ isVariableSchedule: true, recurrenceRule: null })];
   assert.equal(expandOccurrences(records, { from: '2026-06-08', to: '2026-06-30' }).length, 0);
 });
+
+test('a title-only override on a variable master does not invent times', () => {
+  // A variable master's localStart is a placeholder the engine must never
+  // present as a real time. An override that supplies no concrete times leaves
+  // the week un-entered, so the engine must not emit a timed occurrence for it.
+  const records = [
+    master({ isVariableSchedule: true, recurrenceRule: null }),
+    exception({ recurrenceExceptionDate: '2026-06-17', title: 'Renamed shift' }),
+  ];
+  const out = expandOccurrences(records, { from: '2026-06-08', to: '2026-06-30' });
+  assert.equal(out.length, 0);
+});

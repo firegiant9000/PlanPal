@@ -24,14 +24,17 @@ import {
 } from '../_shared/response.ts';
 import {
   expandOccurrences,
-  localToUtc,
   mapEventRow,
   MAX_RANGE_DAYS,
-  parseLocal,
   RecurrenceRangeError,
   UnsupportedRRuleError,
   type EventRow,
 } from '../_shared/recurrence/index.ts';
+import {
+  type OccurrenceModel,
+  variablePlaceholder,
+  variableWeeksInRange,
+} from '../_shared/variable.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
@@ -45,22 +48,7 @@ const DAY_MS = 86_400_000;
  * the mobile calendar reads it to render the "schedule not yet entered" state,
  * and an optional field would make that a silent undefined.
  */
-interface OccurrenceResponseItem {
-  eventId: string;
-  occurrenceDate: string;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  localStart: string;
-  localEnd: string;
-  timezoneId: string;
-  utcStart: string;
-  utcEnd: string;
-  visibility: string;
-  colorLabel?: string | null;
-  isException: boolean;
-  isVariableSchedule: boolean;
-}
+type OccurrenceResponseItem = OccurrenceModel;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -157,9 +145,16 @@ const EVENT_COLUMNS =
 
 /**
  * One placeholder per week of the window for each variable-schedule master,
- * anchored on the master's own weekday. Weeks the user has already filled in
- * (an exception row exists for that date) are skipped, and cancelled weeks are
- * omitted entirely.
+ * anchored on the master's own weekday.
+ *
+ * This pass and the engine partition the dates between them, and the split is
+ * on whether the exception row carries concrete times — NOT on whether one
+ * exists. A cancelled week is dropped; a week with real times belongs to the
+ * engine and is skipped here; a week whose exception sets only descriptive
+ * fields (a title, say) is still un-entered, so it stays a placeholder and
+ * those fields are layered onto it. Keying on mere existence made a
+ * title-only override disappear from the calendar, and letting the engine take
+ * it invented a time from the master's placeholder hour.
  */
 function variablePlaceholders(
   masters: EventRow[],
@@ -170,46 +165,21 @@ function variablePlaceholders(
   const variable = masters.filter((m) => m.is_variable_schedule && m.local_start && m.timezone_id);
   if (variable.length === 0) return [];
 
-  const overridden = new Set(
-    exceptions.map((e) => `${e.master_event_id}:${e.recurrence_exception_date}`),
-  );
+  const byKey = new Map<string, EventRow>();
+  for (const e of exceptions) {
+    byKey.set(`${e.master_event_id}:${e.recurrence_exception_date}`, e);
+  }
 
   const out: OccurrenceResponseItem[] = [];
 
   for (const master of variable) {
-    const startCivil = parseLocal(master.local_start!);
-    const anchorMs = Date.UTC(startCivil.year, startCivil.month - 1, startCivil.day);
-    const anchorDow = new Date(anchorMs).getUTCDay();
+    for (const date of variableWeeksInRange(master, fromMs, toMs)) {
+      const exception = byKey.get(`${master.id}:${date}`);
+      // Cancelled: the week is gone. Concrete times: the engine emits it.
+      if (exception?.is_cancelled) continue;
+      if (exception?.local_start != null) continue;
 
-    // First occurrence of the master's weekday on/after the window start.
-    const fromDow = new Date(fromMs).getUTCDay();
-    let cursor = fromMs + ((anchorDow - fromDow + 7) % 7) * DAY_MS;
-
-    for (; cursor <= toMs; cursor += 7 * DAY_MS) {
-      if (cursor < anchorMs) continue; // routine had not started yet
-      const date = new Date(cursor).toISOString().slice(0, 10);
-      if (overridden.has(`${master.id}:${date}`)) continue;
-
-      const localStart = `${date}T${master.local_start!.slice(11, 19) || '00:00:00'}`;
-      const localEnd = `${date}T${(master.local_end ?? master.local_start!).slice(11, 19) || '00:00:00'}`;
-      const tz = master.timezone_id!;
-
-      out.push({
-        eventId: master.id,
-        occurrenceDate: date,
-        title: master.title ?? 'Variable schedule',
-        description: master.description,
-        location: master.location,
-        localStart,
-        localEnd,
-        timezoneId: tz,
-        utcStart: localToUtc(parseLocal(localStart), tz),
-        utcEnd: localToUtc(parseLocal(localEnd), tz),
-        visibility: master.visibility ?? 'private',
-        colorLabel: master.color_label,
-        isException: false,
-        isVariableSchedule: true,
-      });
+      out.push(variablePlaceholder(master, date, exception ?? null));
     }
   }
 
