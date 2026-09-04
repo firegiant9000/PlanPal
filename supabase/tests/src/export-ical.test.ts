@@ -35,7 +35,7 @@ function unfold(ics: string): string[] {
 
 describe('GET /export/ical', () => {
   it('returns text/calendar, not the JSON envelope', async () => {
-    const res = await callFn('export-ical', { token: user.accessToken });
+    const res = await callFn('export/ical', { token: user.accessToken });
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/text\/calendar/);
@@ -47,7 +47,7 @@ describe('GET /export/ical', () => {
   });
 
   it('emits a structurally valid, CRLF-delimited document', async () => {
-    const res = await callFn('export-ical', { token: user.accessToken });
+    const res = await callFn('export/ical', { token: user.accessToken });
 
     expect(res.text.endsWith('\r\n')).toBe(true);
     // Every line break must be CRLF — a bare LF is the single most common
@@ -63,12 +63,12 @@ describe('GET /export/ical', () => {
   });
 
   it('401s without a user token', async () => {
-    const res = await callFn('export-ical', { token: ANON_KEY });
+    const res = await callFn('export/ical', { token: ANON_KEY });
     expect(expectErr(res, 401).code).toBe('UNAUTHENTICATED');
   });
 
   it('405s a non-GET verb', async () => {
-    const res = await callFn('export-ical', {
+    const res = await callFn('export/ical', {
       method: 'POST',
       token: user.accessToken,
       body: {},
@@ -98,7 +98,7 @@ describe('what is and is not exported', () => {
         visibility: 'shared_all',
       });
 
-      const res = await callFn('export-ical', { token: owner.accessToken });
+      const res = await callFn('export/ical', { token: owner.accessToken });
       expect(res.text).not.toContain('SECRET private thing');
       expect(res.text).toContain('Shared thing');
     } finally {
@@ -116,7 +116,7 @@ describe('what is and is not exported', () => {
         timezoneId: 'America/New_York',
         visibility: 'shared_all',
       });
-      const res = await callFn('export-ical', { token: user.accessToken });
+      const res = await callFn('export/ical', { token: user.accessToken });
       expect(res.text).not.toContain('Belongs to someone else');
     } finally {
       await deleteTestUser(other.id);
@@ -136,7 +136,7 @@ describe('what is and is not exported', () => {
         visibility: 'shared_all',
         isVariableSchedule: true,
       });
-      const res = await callFn('export-ical', { token: owner.accessToken });
+      const res = await callFn('export/ical', { token: owner.accessToken });
       expect(res.text).not.toContain('Variable placeholder');
     } finally {
       await deleteTestUser(owner.id);
@@ -157,7 +157,7 @@ describe('recurrence, cancellations and overrides', () => {
         recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
       });
 
-      const lines = unfold((await callFn('export-ical', { token: owner.accessToken })).text);
+      const lines = unfold((await callFn('export/ical', { token: owner.accessToken })).text);
 
       expect(lines).toContain('RRULE:FREQ=WEEKLY;BYDAY=MO');
       // A floating DTSTART would drift by an hour across a DST boundary in the
@@ -187,9 +187,10 @@ describe('recurrence, cancellations and overrides', () => {
           method: 'DELETE',
           token: owner.accessToken,
         }),
+        202,
       );
 
-      const lines = unfold((await callFn('export-ical', { token: owner.accessToken })).text);
+      const lines = unfold((await callFn('export/ical', { token: owner.accessToken })).text);
 
       // The value must carry the same TZID and the same time-of-day as
       // DTSTART, or the importer cannot match it to an instance and the
@@ -213,7 +214,7 @@ describe('recurrence, cancellations and overrides', () => {
       });
       expectOk(
         await callFn(`events/${master.id}/occurrences/2026-09-14`, {
-          method: 'PUT',
+          method: 'PATCH',
           token: owner.accessToken,
           body: {
             title: 'Moved standup',
@@ -223,7 +224,7 @@ describe('recurrence, cancellations and overrides', () => {
         }),
       );
 
-      const text = (await callFn('export-ical', { token: owner.accessToken })).text;
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
       const lines = unfold(text);
 
       // Two VEVENTs: the master series and the replaced instance.
@@ -245,6 +246,75 @@ describe('recurrence, cancellations and overrides', () => {
       await deleteTestUser(owner.id);
     }
   });
+
+  it('never publishes an occurrence overridden to private', async () => {
+    // The master is shared, so the series is exported — but one occurrence was
+    // deliberately made private, and the exception row carries its own title.
+    // Exporting that VEVENT leaked the private detail into whatever calendar
+    // the file was pasted into.
+    const owner = await createTestUser('ical-priv-ovr');
+    try {
+      const master = await createEvent(owner.accessToken, {
+        title: 'Office hours',
+        localStart: '2026-09-07T09:00:00',
+        localEnd: '2026-09-07T09:30:00',
+        timezoneId: 'America/New_York',
+        visibility: 'shared_all',
+        recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
+      });
+      expectOk(
+        await callFn(`events/${master.id}/occurrences/2026-09-14`, {
+          method: 'PATCH',
+          token: owner.accessToken,
+          body: { title: 'Therapy appointment', visibility: 'private' },
+        }),
+      );
+
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
+      const lines = unfold(text);
+
+      expect(text).not.toContain('Therapy');
+      // Only the master VEVENT survives, and the private instance is REMOVED
+      // from the series rather than merely omitted — otherwise the importer
+      // expands the master's own instance in its place.
+      expect(text.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+      expect(lines).toContain('EXDATE;TZID=America/New_York:20260914T090000');
+    } finally {
+      await deleteTestUser(owner.id);
+    }
+  });
+
+  it('derives the missing side of a one-sided override from the master duration', async () => {
+    // Regression: an override setting only localStart took DTEND from the
+    // master's end TIME-OF-DAY, so moving an occurrence later in the day
+    // emitted DTEND before DTSTART — a negative-duration VEVENT that importers
+    // reject, taking the whole file with them.
+    const owner = await createTestUser('ical-onesided');
+    try {
+      const master = await createEvent(owner.accessToken, {
+        title: 'Moved later',
+        localStart: '2026-09-07T09:00:00',
+        localEnd: '2026-09-07T09:30:00',
+        timezoneId: 'America/New_York',
+        visibility: 'shared_all',
+        recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
+      });
+      expectOk(
+        await callFn(`events/${master.id}/occurrences/2026-09-14`, {
+          method: 'PATCH',
+          token: owner.accessToken,
+          body: { localStart: '2026-09-14T11:00:00' },
+        }),
+      );
+
+      const lines = unfold((await callFn('export/ical', { token: owner.accessToken })).text);
+      expect(lines).toContain('DTSTART;TZID=America/New_York:20260914T110000');
+      // 30 minutes after the NEW start, not the master's 09:30.
+      expect(lines).toContain('DTEND;TZID=America/New_York:20260914T113000');
+    } finally {
+      await deleteTestUser(owner.id);
+    }
+  });
 });
 
 describe('escaping and folding', () => {
@@ -260,7 +330,7 @@ describe('escaping and folding', () => {
         visibility: 'shared_all',
       });
 
-      const lines = unfold((await callFn('export-ical', { token: owner.accessToken })).text);
+      const lines = unfold((await callFn('export/ical', { token: owner.accessToken })).text);
       const summary = lines.find((l) => l.startsWith('SUMMARY:'));
 
       // Unescaped, the comma would split the value into a list and the
@@ -286,7 +356,7 @@ describe('escaping and folding', () => {
         visibility: 'shared_all',
       });
 
-      const text = (await callFn('export-ical', { token: owner.accessToken })).text;
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
 
       // Physically folded...
       for (const physical of text.split('\r\n')) {
@@ -313,7 +383,7 @@ describe('escaping and folding', () => {
         visibility: 'shared_all',
       });
 
-      const text = (await callFn('export-ical', { token: owner.accessToken })).text;
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
       expect(text).not.toContain('\uFFFD'); // replacement char = broken encoding
       expect(unfold(text)).toContain(`SUMMARY:${title}`);
     } finally {

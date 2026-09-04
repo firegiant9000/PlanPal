@@ -5,6 +5,12 @@
  * helper: that wraps everything in the ApiResult envelope, and an importer
  * handed `{"ok":true,"data":"BEGIN:VCALENDAR..."}` rejects the file. Errors
  * still use the envelope, because those are read by our own client.
+ *
+ * The function directory is `export`, not `export-ical`, so this answers at
+ * /functions/v1/export/ical — the path the contract declares. Named
+ * `export-ical` it served /functions/v1/export-ical, and a client generated
+ * from openapi.yaml asking for /export/ical got a gateway 404. Same reasoning
+ * as the /me/devices routes living in `me` (see me/index.ts).
  */
 import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getUserClient } from '../_shared/auth.ts';
@@ -13,17 +19,27 @@ import {
   dbError,
   handleOptions,
   methodNotAllowed,
+  notFound,
   unauthenticated,
 } from '../_shared/response.ts';
 import { buildIcal, type IcalEventRow, type IcalExceptionRow } from '../_shared/ical.ts';
 
 const MASTER_COLUMNS =
   'id,title,description,location,local_start,local_end,timezone_id,recurrence_rule,visibility,created_at,updated_at';
+// `visibility` is read so a per-occurrence override marked private can be
+// excluded. Without it the column is not even fetched, and buildIcal cannot
+// tell a shared override from a private one.
 const EXCEPTION_COLUMNS =
-  'master_event_id,recurrence_exception_date,is_cancelled,title,description,location,local_start,local_end,timezone_id';
+  'master_event_id,recurrence_exception_date,is_cancelled,title,description,location,local_start,local_end,timezone_id,visibility';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
+
+  const url = new URL(req.url);
+  const segments = url.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  // segments[0] = "export", [1] = "ical"
+  if (segments[1] !== 'ical') return notFound('Route');
+
   if (req.method !== 'GET') return methodNotAllowed();
 
   const auth = await getUserClient(req);
@@ -58,15 +74,16 @@ async function exportIcal(client: SupabaseClient, userId: string) {
 
   let exceptions: IcalExceptionRow[] = [];
   if (events.length > 0) {
+    // No `.in('master_event_id', <every master id>)` filter. It bought nothing
+    // — buildIcal groups exceptions by master and ignores any whose master is
+    // not in the exported set — while serialising one UUID per master into the
+    // request URL, which a calendar with a few thousand masters pushes past the
+    // gateway's URL limit and fails the export outright.
     const { data, error } = await client
       .from('events')
       .select(EXCEPTION_COLUMNS)
       .eq('owner_id', userId)
-      .eq('is_master', false)
-      .in(
-        'master_event_id',
-        events.map((e) => e.id),
-      );
+      .eq('is_master', false);
     if (error) return dbError(error, 'export:ical:exceptions');
     exceptions = (data ?? []) as unknown as IcalExceptionRow[];
   }

@@ -35,6 +35,8 @@ export interface IcalExceptionRow {
   local_start: string | null;
   local_end: string | null;
   timezone_id: string | null;
+  /** null = inherit the master's visibility. `private` is never exported. */
+  visibility: string | null;
 }
 
 /** RFC 5545 §3.3.11 — escape TEXT values. Colons are NOT escaped. */
@@ -94,6 +96,37 @@ export function toIcalLocal(localDateTime: string): string {
 export function toIcalLocalOnDate(date: string, timeSource: string): string {
   const time = toIcalLocal(timeSource).slice(9); // HHMMSS
   return `${date.replace(/-/g, '')}T${time}`;
+}
+
+/**
+ * Parse a naive local datetime to epoch-ms, treating the wall clock as UTC.
+ *
+ * Only ever used for arithmetic between two wall-clock values in the same zone
+ * (an override's start and the master's duration), so no zone conversion is
+ * involved and none must be inferred from the result.
+ */
+function naiveMs(localDateTime: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(localDateTime);
+  if (!m) throw new Error(`Unparseable local datetime: ${localDateTime}`);
+  return Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, m[6] ? +m[6]! : 0);
+}
+
+/** A calendar date plus a time-of-day source -> naive epoch-ms. */
+function onDateMs(date: string, timeSource: string): number {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!d) throw new Error(`Unparseable date: ${date}`);
+  const t = /[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(timeSource);
+  return Date.UTC(+d[1]!, +d[2]! - 1, +d[3]!, t ? +t[1]! : 0, t ? +t[2]! : 0, t?.[3] ? +t[3]! : 0);
+}
+
+/** Naive epoch-ms -> `20260907T090000`. */
+function fromNaiveMs(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`
+  );
 }
 
 /** An ISO instant -> `20260907T130000Z`. */
@@ -157,12 +190,18 @@ export function buildIcal(
     push(lines, 'CREATED', toIcalUtc(event.created_at));
     push(lines, 'LAST-MODIFIED', toIcalUtc(event.updated_at));
 
-    // Cancelled occurrences are removed from the series with EXDATE. The value
-    // must carry the same TZID and the same time-of-day as DTSTART, or the
-    // importer will not match it to an instance and the cancellation is lost.
-    const cancelled = related.filter((r) => r.is_cancelled);
-    if (cancelled.length > 0) {
-      const values = cancelled
+    // An occurrence leaves the exported series entirely if it was cancelled OR
+    // if it was overridden to `private`. The second case is not cosmetic: the
+    // exception row carries its own title/description/location, and emitting
+    // its VEVENT would publish detail the user marked private on a master that
+    // is merely shared. Dropping it from the series is the honest export —
+    // suppressing only the VEVENT would leave the importer expanding the
+    // master's own instance in its place.
+    const removed = related.filter((r) => r.is_cancelled || r.visibility === 'private');
+    if (removed.length > 0) {
+      // EXDATE must carry the same TZID and time-of-day as DTSTART, or the
+      // importer cannot match it to an instance and the removal is lost.
+      const values = removed
         .map((r) => toIcalLocalOnDate(r.recurrence_exception_date, event.local_start!))
         .join(',');
       push(lines, `EXDATE;TZID=${tz}`, values);
@@ -172,9 +211,25 @@ export function buildIcal(
 
     // Overrides are separate VEVENTs sharing the master's UID, identified by
     // the occurrence they replace.
-    for (const ov of related.filter((r) => !r.is_cancelled)) {
-      const start = ov.local_start ?? toDateTimeOn(ov.recurrence_exception_date, event.local_start);
-      const end = ov.local_end ?? toDateTimeOn(ov.recurrence_exception_date, event.local_end);
+    const masterDurationMs = naiveMs(event.local_end) - naiveMs(event.local_start);
+
+    for (const ov of related.filter((r) => !r.is_cancelled && r.visibility !== 'private')) {
+      // A sparse override may set only one side of the window. The missing
+      // side is derived by preserving the MASTER'S DURATION, matching the
+      // engine's rule in packages/recurrence/src/expand.ts#buildOccurrence.
+      // Falling back to the master's end time-of-day instead (the previous
+      // behaviour) produced DTEND before DTSTART whenever an occurrence was
+      // moved later in the day — a negative-duration VEVENT that importers
+      // reject, taking the rest of the file with it.
+      const seriesStartMs = onDateMs(ov.recurrence_exception_date, event.local_start);
+      const startMs = ov.local_start ? naiveMs(ov.local_start) : seriesStartMs;
+      const endMs = ov.local_end ? naiveMs(ov.local_end) : startMs + masterDurationMs;
+
+      // Defensive: the API rejects an override whose merged window is inverted,
+      // so this is unreachable through it. A row that predates that validation
+      // is skipped rather than written out as a malformed VEVENT.
+      if (endMs <= startMs) continue;
+
       const ovTz = ov.timezone_id ?? tz;
 
       lines.push('BEGIN:VEVENT');
@@ -188,8 +243,8 @@ export function buildIcal(
         `RECURRENCE-ID;TZID=${tz}`,
         toIcalLocalOnDate(ov.recurrence_exception_date, event.local_start),
       );
-      push(lines, `DTSTART;TZID=${ovTz}`, toIcalLocal(start));
-      push(lines, `DTEND;TZID=${ovTz}`, toIcalLocal(end));
+      push(lines, `DTSTART;TZID=${ovTz}`, fromNaiveMs(startMs));
+      push(lines, `DTEND;TZID=${ovTz}`, fromNaiveMs(endMs));
       push(lines, 'SUMMARY', escapeText(ov.title ?? event.title));
       const desc = ov.description ?? event.description;
       if (desc) push(lines, 'DESCRIPTION', escapeText(desc));
@@ -203,10 +258,4 @@ export function buildIcal(
 
   // RFC 5545 §3.1: lines are delimited by CRLF, and the file ends with one.
   return lines.join('\r\n') + '\r\n';
-}
-
-/** Combine an exception's date with the master's time-of-day. */
-function toDateTimeOn(date: string, timeSource: string): string {
-  const match = /[T ](\d{2}:\d{2}(?::\d{2})?)/.exec(timeSource);
-  return `${date}T${match ? match[1] : '00:00:00'}`;
 }
