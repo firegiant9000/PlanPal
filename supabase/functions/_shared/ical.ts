@@ -178,6 +178,48 @@ export function buildIcal(
     const uid = `${event.id}@planpal.app`;
     const related = byMaster.get(event.id) ?? [];
 
+    // A master with no RRULE has no recurrence SET, and both mechanisms this
+    // function uses to express an exception are defined only against one:
+    // EXDATE removes instances from the set and cannot remove DTSTART, and
+    // RECURRENCE-ID identifies an instance of a set that does not exist here.
+    // Applied to a one-off event they produced a cancelled event that still
+    // appeared in the importer, and an overridden one that exported twice —
+    // once at its original time and once as an orphan RECURRENCE-ID. So fold
+    // the single occurrence's exception into the one VEVENT instead.
+    if (event.recurrence_rule == null) {
+      const own = related.find(
+        (r) => r.recurrence_exception_date === event.local_start!.slice(0, 10),
+      );
+
+      // Cancelled or made private: the event is simply not in the export.
+      if (own?.is_cancelled || own?.visibility === 'private') continue;
+
+      const baseStartMs = naiveMs(event.local_start);
+      const durationMs = naiveMs(event.local_end) - baseStartMs;
+      const startMs = own?.local_start ? naiveMs(own.local_start) : baseStartMs;
+      const endMs = own?.local_end
+        ? naiveMs(own.local_end)
+        : own?.local_start
+          ? startMs + durationMs
+          : naiveMs(event.local_end);
+      if (endMs <= startMs) continue; // never write an inverted VEVENT
+
+      lines.push('BEGIN:VEVENT');
+      push(lines, 'UID', uid);
+      push(lines, 'DTSTAMP', stamp);
+      push(lines, `DTSTART;TZID=${own?.timezone_id ?? tz}`, fromNaiveMs(startMs));
+      push(lines, `DTEND;TZID=${own?.timezone_id ?? tz}`, fromNaiveMs(endMs));
+      push(lines, 'SUMMARY', escapeText(own?.title ?? event.title));
+      const oneOffDesc = own?.description ?? event.description;
+      if (oneOffDesc) push(lines, 'DESCRIPTION', escapeText(oneOffDesc));
+      const oneOffLoc = own?.location ?? event.location;
+      if (oneOffLoc) push(lines, 'LOCATION', escapeText(oneOffLoc));
+      push(lines, 'CREATED', toIcalUtc(event.created_at));
+      push(lines, 'LAST-MODIFIED', toIcalUtc(event.updated_at));
+      lines.push('END:VEVENT');
+      continue;
+    }
+
     lines.push('BEGIN:VEVENT');
     push(lines, 'UID', uid);
     push(lines, 'DTSTAMP', stamp);
@@ -186,7 +228,7 @@ export function buildIcal(
     push(lines, 'SUMMARY', escapeText(event.title));
     if (event.description) push(lines, 'DESCRIPTION', escapeText(event.description));
     if (event.location) push(lines, 'LOCATION', escapeText(event.location));
-    if (event.recurrence_rule) push(lines, 'RRULE', event.recurrence_rule);
+    push(lines, 'RRULE', event.recurrence_rule);
     push(lines, 'CREATED', toIcalUtc(event.created_at));
     push(lines, 'LAST-MODIFIED', toIcalUtc(event.updated_at));
 

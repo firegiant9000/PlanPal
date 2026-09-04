@@ -284,6 +284,73 @@ describe('recurrence, cancellations and overrides', () => {
     }
   });
 
+  it('drops a cancelled one-off entirely rather than EXDATE-ing it', async () => {
+    // A master with no RRULE has no recurrence SET. EXDATE removes instances
+    // from a set and cannot remove DTSTART, so a cancelled one-off exported
+    // with an EXDATE still showed up in the importer — the cancellation was
+    // silently ineffective. Newly reachable: standalone THIS-cancel only
+    // started working in this branch.
+    const owner = await createTestUser('ical-oneoff-cancel');
+    try {
+      const ev = await createEvent(owner.accessToken, {
+        title: 'One-off cancelled',
+        localStart: '2026-09-07T09:00:00',
+        localEnd: '2026-09-07T09:30:00',
+        timezoneId: 'America/New_York',
+        visibility: 'shared_all',
+      });
+      expectOk(
+        await callFn(`events/${ev.id}/occurrences/2026-09-07`, {
+          method: 'DELETE',
+          token: owner.accessToken,
+        }),
+        202,
+      );
+
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
+      expect(text).not.toContain('One-off cancelled');
+      expect(text).not.toContain('EXDATE');
+      expect(text.match(/BEGIN:VEVENT/g) ?? []).toHaveLength(0);
+    } finally {
+      await deleteTestUser(owner.id);
+    }
+  });
+
+  it('folds a one-off override into its single VEVENT, with no RECURRENCE-ID', async () => {
+    // RECURRENCE-ID identifies an instance of a recurrence set, so on a
+    // non-recurring master it is an orphan: the export emitted the master at
+    // its original time AND a second VEVENT sharing the UID, so the importer
+    // showed the un-moved event.
+    const owner = await createTestUser('ical-oneoff-move');
+    try {
+      const ev = await createEvent(owner.accessToken, {
+        title: 'One-off moved',
+        localStart: '2026-10-05T09:00:00',
+        localEnd: '2026-10-05T09:30:00',
+        timezoneId: 'America/New_York',
+        visibility: 'shared_all',
+      });
+      expectOk(
+        await callFn(`events/${ev.id}/occurrences/2026-10-05`, {
+          method: 'PATCH',
+          token: owner.accessToken,
+          body: { localStart: '2026-10-05T14:00:00', localEnd: '2026-10-05T15:00:00' },
+        }),
+      );
+
+      const text = (await callFn('export/ical', { token: owner.accessToken })).text;
+      const lines = unfold(text);
+
+      expect(text.match(/BEGIN:VEVENT/g) ?? []).toHaveLength(1);
+      expect(text).not.toContain('RECURRENCE-ID');
+      expect(text).not.toContain('RRULE');
+      expect(lines).toContain('DTSTART;TZID=America/New_York:20261005T140000');
+      expect(lines).toContain('DTEND;TZID=America/New_York:20261005T150000');
+    } finally {
+      await deleteTestUser(owner.id);
+    }
+  });
+
   it('derives the missing side of a one-sided override from the master duration', async () => {
     // Regression: an override setting only localStart took DTEND from the
     // master's end TIME-OF-DAY, so moving an occurrence later in the day
