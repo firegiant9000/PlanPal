@@ -9,18 +9,25 @@
  * static 200. A function that answers "ok" while its database is unreachable
  * is worse than no probe at all: it turns an outage into a silent one.
  */
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { corsHeaders, handleOptions, methodNotAllowed, ok } from '../_shared/response.ts';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { err, handleOptions, methodNotAllowed, ok } from '../_shared/response.ts';
+
+// Built once per isolate, not per request. This is the most frequently hit
+// endpoint in the service — uptime checkers poll it every few seconds forever —
+// and every call was re-reading the environment and constructing a
+// byte-identical client, on the one endpoint whose latency is monitored.
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
+const client: SupabaseClient | null =
+  SUPABASE_URL && ANON_KEY
+    ? createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } })
+    : null;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
   if (req.method !== 'GET') return methodNotAllowed();
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL');
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!supabaseUrl || !anonKey) return unhealthy('configuration');
-
-  const client = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
+  if (!client) return unhealthy('configuration');
 
   // `public.healthz()` rather than a table read: `anon` holds no table grants
   // at all in `public`, so any `.from(...)` here fails with 42501 regardless of
@@ -48,13 +55,12 @@ Deno.serve(async (req: Request) => {
  * 503 rather than the ok() envelope: a probe that reports failure with HTTP 200
  * is invisible to every load balancer and uptime checker that looks at status
  * codes, which is most of them.
+ *
+ * Built with the shared `err()` helper rather than a hand-rolled Response. The
+ * previous private copy of the envelope and CORS headers produced a
+ * byte-identical result, but would have silently stopped matching the moment
+ * either changed — on the one endpoint nothing else exercises.
  */
 function unhealthy(reason: string): Response {
-  return new Response(
-    JSON.stringify({
-      ok: false,
-      error: { code: 'INTERNAL_ERROR', message: `Service unhealthy: ${reason}.` },
-    }),
-    { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders } },
-  );
+  return err('INTERNAL_ERROR', `Service unhealthy: ${reason}.`, 503);
 }

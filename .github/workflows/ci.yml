@@ -74,11 +74,15 @@ jobs:
         working-directory: supabase/functions
         run: deno lint
 
+      # Every function entry point, enumerated by glob rather than by hand: the
+      # hand-written list silently fell behind the functions this repo added,
+      # so export/ and friend-code/ (and _shared/ical.ts, which only export
+      # imports) shipped with no type gate at all. `deno lint` and the
+      # integration suite both miss compile-only errors — Deno serves modules
+      # without type-checking them.
       - name: Type-check Edge Functions
         working-directory: supabase/functions
-        run: >
-          deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
-          me/index.ts healthz/index.ts
+        run: deno check */index.ts
 
   # The only job that runs a database. Until it existed, nothing in CI ever
   # applied a migration or invoked a function — `verify` and `edge-functions`

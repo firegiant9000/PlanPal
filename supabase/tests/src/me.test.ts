@@ -179,6 +179,33 @@ describe('PATCH /me', () => {
     expect(expectErr(res, 400).code).toBe('VALIDATION_ERROR');
   });
 
+  it.each(['2026-02-31', '2026-13-01', '2026-00-10'])(
+    '400s the impossible-but-well-formed birthday %s rather than a 500',
+    async (birthday) => {
+      // These match the ISO-date pattern, so shape-only validation passed them
+      // to the `date` column, where Postgres raised SQLSTATE 22008 — a code the
+      // dbError map did not carry, so a plain typo came back as
+      // INTERNAL_ERROR/500.
+      const res = await callFn('me', {
+        method: 'PATCH',
+        token: user.accessToken,
+        body: { birthday },
+      });
+      expect(expectErr(res, 400).code).toBe('VALIDATION_ERROR');
+    },
+  );
+
+  it('still accepts a real leap-day birthday', async () => {
+    const updated = expectOk<Profile>(
+      await callFn('me', {
+        method: 'PATCH',
+        token: user.accessToken,
+        body: { birthday: '2028-02-29' },
+      }),
+    );
+    expect(updated.birthday).toBe('2028-02-29');
+  });
+
   it('does not let one user patch another (RLS scopes the update)', async () => {
     const other = await createTestUser('me-victim');
     try {
