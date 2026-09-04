@@ -199,3 +199,74 @@ test('a daily series spans a leap day correctly', () => {
     ['2028-02-28', '2028-02-29', '2028-03-01'],
   );
 });
+
+test('a standalone event applies its override (times and title)', () => {
+  // Regression: overrides were only applied to recurring masters, so a THIS
+  // override on a one-off event was stored but silently ignored by expansion.
+  const records = [
+    standalone,
+    exception({
+      masterEventId: COFFEE,
+      recurrenceExceptionDate: '2026-06-10',
+      title: 'Coffee (moved)',
+      localStart: '2026-06-10T18:00:00',
+      localEnd: '2026-06-10T19:00:00',
+    }),
+  ];
+  const out = expandOccurrences(records, { from: '2026-06-08', to: '2026-06-14' });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.title, 'Coffee (moved)');
+  assert.equal(out[0]!.localStart, '2026-06-10T18:00:00');
+  assert.equal(out[0]!.localEnd, '2026-06-10T19:00:00');
+  assert.equal(out[0]!.isException, true);
+});
+
+test('a standalone event honours a THIS-cancel', () => {
+  const records = [
+    standalone,
+    exception({
+      masterEventId: COFFEE,
+      recurrenceExceptionDate: '2026-06-10',
+      isCancelled: true,
+    }),
+  ];
+  assert.equal(expandOccurrences(records, { from: '2026-06-08', to: '2026-06-14' }).length, 0);
+});
+
+test('a variable-schedule master emits its filled-in weeks (non-cancelled exceptions)', () => {
+  // Regression: the engine skipped variable masters entirely, and the
+  // /occurrences placeholder pass skips overridden dates — so a week the user
+  // had filled in vanished from the calendar altogether.
+  const records = [
+    master({ isVariableSchedule: true, recurrenceRule: null }),
+    exception({
+      recurrenceExceptionDate: '2026-06-17',
+      localStart: '2026-06-17T13:00:00',
+      localEnd: '2026-06-17T15:00:00',
+    }),
+    exception({
+      id: 'eeeeeeee-0000-0000-0000-000000000002',
+      recurrenceExceptionDate: '2026-06-24',
+      isCancelled: true,
+    }),
+    // Outside the window: must not leak in.
+    exception({
+      id: 'eeeeeeee-0000-0000-0000-000000000003',
+      recurrenceExceptionDate: '2026-07-08',
+      localStart: '2026-07-08T13:00:00',
+      localEnd: '2026-07-08T15:00:00',
+    }),
+  ];
+  const out = expandOccurrences(records, { from: '2026-06-08', to: '2026-06-30' });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.occurrenceDate, '2026-06-17');
+  assert.equal(out[0]!.localStart, '2026-06-17T13:00:00');
+  assert.equal(out[0]!.localEnd, '2026-06-17T15:00:00');
+  assert.equal(out[0]!.title, 'Standup'); // inherited from the master
+  assert.equal(out[0]!.isException, true);
+});
+
+test('a variable-schedule master with no exceptions still expands to nothing', () => {
+  const records = [master({ isVariableSchedule: true, recurrenceRule: null })];
+  assert.equal(expandOccurrences(records, { from: '2026-06-08', to: '2026-06-30' }).length, 0);
+});
