@@ -7,8 +7,13 @@
  *   GET    /events/:id                         get one event
  *   PATCH  /events/:id                         update master (ALL scope)
  *   DELETE /events/:id                         delete master + all exceptions
- *   PUT    /events/:id/occurrences/:date       THIS-override an occurrence
+ *   PATCH  /events/:id/occurrences/:date       THIS-override an occurrence
  *   DELETE /events/:id/occurrences/:date       THIS-cancel an occurrence
+ *
+ * The override route is PATCH returning EventOccurrenceResult, per the
+ * contract. It previously answered PUT and returned the raw exception row in
+ * the Event shape — which cannot represent a sparse exception without emitting
+ * null for six required non-nullable fields.
  */
 import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getUserClient } from '../_shared/auth.ts';
@@ -22,13 +27,22 @@ import {
   ok,
   unauthenticated,
 } from '../_shared/response.ts';
-import { parseRRule, UnsupportedRRuleError } from '../_shared/recurrence/index.ts';
+import {
+  expandOccurrences,
+  mapEventRow,
+  parseRRule,
+  UnsupportedRRuleError,
+  type EventRow,
+} from '../_shared/recurrence/index.ts';
 import { type EventRowFull, toEventModel, toEventModels } from '../_shared/serialize.ts';
+import {
+  isCalendarDate,
+  LOCAL_DT_RE,
+  validateTimezone,
+  VISIBILITIES,
+} from '../_shared/validate.ts';
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const VISIBILITIES = ['private', 'shared_all', 'shared_select', 'sensitive_public'];
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -55,10 +69,15 @@ Deno.serve(async (req: Request) => {
   if (!UUID_RE.test(eventId)) return notFound('Event');
 
   // --- Occurrence sub-resource ---
-  if (isOccurrencePath && occurrenceDate) {
-    if (!DATE_RE.test(occurrenceDate)) return badRequest('Occurrence date must be YYYY-MM-DD.');
-    if (req.method === 'PUT')
-      return upsertOccurrenceOverride(client, userId, eventId, occurrenceDate, req);
+  // Never fall through: `/events/:id/occurrences` with a missing or malformed
+  // date previously dropped into the single-event branch, where a DELETE that
+  // meant "cancel one day" deleted the entire master and its exceptions.
+  if (isOccurrencePath) {
+    if (!occurrenceDate || !isCalendarDate(occurrenceDate)) {
+      return badRequest('Occurrence date must be a real calendar date (YYYY-MM-DD).');
+    }
+    if (req.method === 'PATCH')
+      return overrideOccurrence(client, userId, eventId, occurrenceDate, req);
     if (req.method === 'DELETE') return cancelOccurrence(client, userId, eventId, occurrenceDate);
     return methodNotAllowed();
   }
@@ -207,20 +226,33 @@ async function deleteEvent(client: SupabaseClient, userId: string, eventId: stri
     .select('id');
   if (error) return dbError(error, 'events:delete');
   if (!data || data.length === 0) return notFound('Event');
-  return ok({ deleted: true });
+  // 202 with a null payload — EmptyResult, per the contract.
+  return ok(null, 202);
 }
 
-async function upsertOccurrenceOverride(
+/** The OccurrenceOverride fields the contract declares, mapped to columns. */
+const OVERRIDE_FIELDS: Record<string, string> = {
+  title: 'title',
+  description: 'description',
+  location: 'location',
+  localStart: 'local_start',
+  localEnd: 'local_end',
+  visibility: 'visibility',
+  colorLabel: 'color_label',
+};
+
+async function overrideOccurrence(
   client: SupabaseClient,
   userId: string,
   eventId: string,
   date: string,
   req: Request,
 ) {
-  // Verify the master belongs to this user.
+  // The full master row: needed both for ownership and to resolve the merged
+  // occurrence the contract says this route returns.
   const { data: master, error: masterErr } = await client
     .from('events')
-    .select('id')
+    .select('*')
     .eq('id', eventId)
     .eq('owner_id', userId)
     .eq('is_master', true)
@@ -234,32 +266,73 @@ async function upsertOccurrenceOverride(
   const validation = validateOccurrenceOverride(body);
   if (validation) return badRequest(validation);
 
-  const row = {
+  // PATCH semantics: merge onto the existing exception row, if any. Building
+  // the row from the body alone silently reset every previously-overridden
+  // field that this request did not mention.
+  const { data: existing, error: existingErr } = await client
+    .from('events')
+    .select('*')
+    .eq('master_event_id', eventId)
+    .eq('recurrence_exception_date', date)
+    .maybeSingle();
+  if (existingErr) return dbError(existingErr, 'events:override:existing');
+
+  const row: Record<string, unknown> = {
     owner_id: userId,
     master_event_id: eventId,
     recurrence_exception_date: date,
     is_master: false,
+    // Overriding a previously-cancelled occurrence reinstates it.
     is_cancelled: false,
-    title: (body.title as string | null) ?? null,
-    description: (body.description as string | null) ?? null,
-    location: (body.location as string | null) ?? null,
-    local_start: (body.localStart as string | null) ?? null,
-    local_end: (body.localEnd as string | null) ?? null,
-    timezone_id: (body.timezoneId as string | null) ?? null,
-    visibility: (body.visibility as string | null) ?? null,
-    color_label: (body.colorLabel as string | null) ?? null,
-    shared_with: (body.sharedWith as string[] | null) ?? [],
+    recurrence_rule: null,
+    is_variable_schedule: false,
+    title: existing?.title ?? null,
+    description: existing?.description ?? null,
+    location: existing?.location ?? null,
+    local_start: existing?.local_start ?? null,
+    local_end: existing?.local_end ?? null,
+    visibility: existing?.visibility ?? null,
+    color_label: existing?.color_label ?? null,
   };
+  for (const [clientKey, dbKey] of Object.entries(OVERRIDE_FIELDS)) {
+    if (clientKey in body) row[dbKey] = body[clientKey];
+  }
 
-  const { data, error } = await client
+  // Resolve the occurrence this write produces BEFORE persisting it, both to
+  // return the contract's EventOccurrence and to reject writes the series
+  // cannot represent: a date the rule never generates is a 404, and a merged
+  // override whose end lands on or before its start is a 400 (each field can
+  // be valid alone — e.g. a localEnd-only override behind the master's start).
+  const masterRecord = mapEventRow(master as unknown as EventRow);
+  const candidateRecord = mapEventRow({
+    ...(row as unknown as EventRow),
+    id: existing?.id ?? '00000000-0000-0000-0000-000000000000',
+  });
+  let resolved;
+  try {
+    resolved = expandOccurrences([masterRecord, candidateRecord], { from: date, to: date }).find(
+      (o) => o.occurrenceDate === date,
+    );
+  } catch (error) {
+    if (error instanceof UnsupportedRRuleError) {
+      return badRequest(`Stored recurrence rule is not supported: ${error.message}`);
+    }
+    throw error;
+  }
+  if (!resolved) return notFound('Occurrence');
+  if (resolved.localEnd <= resolved.localStart) {
+    return badRequest('The overridden occurrence would end on or before it starts.');
+  }
+
+  const { error } = await client
     .from('events')
-    .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' })
-    .select()
-    .single();
-
+    .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' });
   if (error) return dbError(error, 'events:override');
-  // Widening cast per AD-11; removed by T32.
-  return ok(toEventModel(data as unknown as EventRowFull));
+
+  // EventOccurrenceResult, per the contract. A filled-in or overridden
+  // occurrence has concrete times, so isVariableSchedule is false — matching
+  // what /occurrences serves for this date after the write.
+  return ok({ ...resolved, isVariableSchedule: false });
 }
 
 async function cancelOccurrence(
@@ -291,7 +364,8 @@ async function cancelOccurrence(
     .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' });
 
   if (error) return dbError(error, 'events:cancel');
-  return ok({ cancelled: true });
+  // 202 with a null payload — EmptyResult, per the contract.
+  return ok(null, 202);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,17 +391,6 @@ function validateRecurrenceRule(value: unknown): string | null {
       return `"recurrenceRule" is not supported: ${error.message}`;
     }
     return '"recurrenceRule" is not a valid RRULE.';
-  }
-  return null;
-}
-
-/** IANA zone check — `Intl` is the authority already used by the engine. */
-function validateTimezone(value: unknown): string | null {
-  if (typeof value !== 'string' || value === '') return '"timezoneId" is required.';
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-  } catch {
-    return `"timezoneId" is not a recognised IANA timezone: ${value}`;
   }
   return null;
 }
@@ -397,21 +460,32 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
   return null;
 }
 
-/** An override is sparse — every field is optional, but must be well-formed. */
+/**
+ * An override is sparse — every declared field is optional, but the contract's
+ * `OccurrenceOverride` sets `additionalProperties: false` and `minProperties: 1`,
+ * so an empty body and undeclared keys (previously `timezoneId` and `sharedWith`
+ * were silently persisted) are rejected rather than absorbed.
+ */
 function validateOccurrenceOverride(body: Record<string, unknown>): string | null {
-  if (
-    'localStart' in body &&
-    body.localStart !== null &&
-    (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))
-  ) {
-    return '"localStart" must be YYYY-MM-DDTHH:mm[:ss] or null.';
+  const keys = Object.keys(body);
+  if (keys.length === 0) return 'An override must set at least one field.';
+  const unknown = keys.filter((k) => !(k in OVERRIDE_FIELDS));
+  if (unknown.length > 0) {
+    return `Unknown field(s) for an occurrence override: ${unknown.join(', ')}.`;
   }
-  if (
-    'localEnd' in body &&
-    body.localEnd !== null &&
-    (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))
-  ) {
-    return '"localEnd" must be YYYY-MM-DDTHH:mm[:ss] or null.';
+
+  if ('title' in body && (typeof body.title !== 'string' || body.title.trim() === '')) {
+    return '"title" must be a non-empty string.';
+  }
+  for (const key of ['description', 'location', 'colorLabel'] as const) {
+    if (key in body && body[key] !== null && typeof body[key] !== 'string') {
+      return `"${key}" must be a string or null.`;
+    }
+  }
+  for (const key of ['localStart', 'localEnd'] as const) {
+    if (key in body && (typeof body[key] !== 'string' || !LOCAL_DT_RE.test(body[key] as string))) {
+      return `"${key}" must be YYYY-MM-DDTHH:mm[:ss].`;
+    }
   }
   if (
     typeof body.localStart === 'string' &&
@@ -420,15 +494,7 @@ function validateOccurrenceOverride(body: Record<string, unknown>): string | nul
   ) {
     return '"localEnd" must be after "localStart".';
   }
-  if ('timezoneId' in body && body.timezoneId !== null) {
-    const tzError = validateTimezone(body.timezoneId);
-    if (tzError) return tzError;
-  }
-  if (
-    'visibility' in body &&
-    body.visibility !== null &&
-    !VISIBILITIES.includes(body.visibility as string)
-  ) {
+  if ('visibility' in body && !VISIBILITIES.includes(body.visibility as string)) {
     return `"visibility" must be one of: ${VISIBILITIES.join(', ')}.`;
   }
   return null;

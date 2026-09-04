@@ -211,7 +211,11 @@ describe('DELETE /events/{id}', () => {
       201,
     );
 
-    expectOk(await callFn(`events/${created.id}`, { method: 'DELETE', token: user.accessToken }));
+    // 202 EmptyResult, per the contract.
+    expectOk(
+      await callFn(`events/${created.id}`, { method: 'DELETE', token: user.accessToken }),
+      202,
+    );
 
     // A delete that matched nothing must be a 404, not a misleading success.
     const again = await callFn(`events/${created.id}`, {

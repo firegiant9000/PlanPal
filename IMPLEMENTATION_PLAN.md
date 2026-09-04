@@ -234,7 +234,12 @@ export interface PlanPalClient {
     get(id: string): Promise<Event>;
     update(id: string, patch: EventUpdate): Promise<Event>;
     remove(id: string): Promise<void>;
-    overrideOccurrence(id: string, date: string, patch: OccurrenceOverride): Promise<Event>;
+    /** PATCH; resolves to the merged occurrence, not the master. See §11. */
+    overrideOccurrence(
+      id: string,
+      date: string,
+      patch: OccurrenceOverride,
+    ): Promise<EventOccurrence>;
     cancelOccurrence(id: string, date: string): Promise<void>;
   };
   occurrences: {
@@ -398,6 +403,31 @@ Run `pnpm db:reset` after each to prove the chain applies from scratch.
 | Add `isVariableSchedule` to `EventOccurrence` ✅ _decided: add_ | The endpoint returns it, the schema omits it, mobile consumes it  |
 
 Each: edit `openapi.yaml` → `pnpm contract:generate` → commit the regenerated types. `contract.yml` fails if they drift.
+
+### The occurrence override route — 🔸 _needs Scott's explicit sign-off_
+
+The code, the contract and this document all disagreed three ways. `openapi.yaml`
+declared `PATCH` returning `EventOccurrenceResult`; the function implemented `PUT`
+returning `Event`; §P3 and §5 said `PUT`.
+
+**Resolved in favour of the contract: `PATCH`, returning `EventOccurrence`.** The
+implementation and this document were changed to match, not the spec. The reasoning
+is that `Event` is not merely a different-but-valid choice here — it is
+unrepresentable. An exception row is sparse by design, so returning one through the
+`Event` serialiser emitted `localStart`, `localEnd`, `timezoneId`, `utcStart`,
+`utcEnd` and `visibility` as `null`, every one of them required and non-nullable in
+that schema. A client reading the generated type saw `null` through a non-nullable
+field with no type error. `EventOccurrence` is the only declared shape that can
+describe a resolved occurrence honestly, and a partial edit is `PATCH` semantics
+anyway — `PUT`-as-replace would oblige clients to send the whole window, which
+contradicts sparse-by-design.
+
+Consequences, all landed together: the route merges onto any existing exception row
+rather than resetting unmentioned fields; it resolves the occurrence through the
+engine before writing, so a date the rule never generates is a `404` and an
+inverted merged window is a `400`; and `supabase/tests/src/contract-shape.test.ts`
+was flipped from asserting the `Event` shape to asserting `EventOccurrence` — that
+test would otherwise have blocked the fix, so it had to move with it.
 
 ---
 

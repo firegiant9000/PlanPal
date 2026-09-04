@@ -39,6 +39,21 @@ const EVENT_REQUIRED = [
   'updatedAt',
 ] as const;
 
+/** Required properties of `EventOccurrence` in openapi.yaml. */
+const OCCURRENCE_REQUIRED = [
+  'eventId',
+  'occurrenceDate',
+  'title',
+  'localStart',
+  'localEnd',
+  'timezoneId',
+  'utcStart',
+  'utcEnd',
+  'visibility',
+  'isException',
+  'isVariableSchedule',
+] as const;
+
 /** Column names that must never appear on the wire. */
 const SNAKE_CASE_LEAKS = [
   'owner_id',
@@ -127,19 +142,49 @@ describe('Event responses match the contract', () => {
     for (const item of page.items) assertEventShape(item, 'GET /events item');
   });
 
-  it('PUT /events/{id}/occurrences/{date}', async () => {
+  it('PATCH /events/{id}/occurrences/{date} returns EventOccurrence, not Event', async () => {
+    // The contract declares EventOccurrenceResult here. This route previously
+    // returned the raw exception row through the Event serialiser, which forced
+    // six required, non-nullable Event properties to null — a sparse exception
+    // row is structurally unrepresentable as an Event. This test asserted that
+    // Event shape and so had to be flipped with the fix, not after it.
     const master = await create({
       title: 'Shape: override',
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO',
     });
     const overridden = expectOk(
       await callFn<Record<string, unknown>>(`events/${master.id}/occurrences/2026-09-14`, {
-        method: 'PUT',
+        method: 'PATCH',
         token: user.accessToken,
         body: { title: 'Shape: overridden' },
       }),
     );
-    assertEventShape(overridden, 'PUT occurrence override');
+
+    for (const key of OCCURRENCE_REQUIRED) {
+      expect(
+        overridden,
+        `override: missing required EventOccurrence property ${key}`,
+      ).toHaveProperty(key);
+      // Every one of these is non-nullable in the schema. The old response
+      // emitted null for most of them, so assert values rather than presence.
+      expect(overridden[key], `override: ${key} must not be null`).not.toBeNull();
+    }
+    for (const key of SNAKE_CASE_LEAKS) {
+      expect(overridden, `override: leaked raw column ${key}`).not.toHaveProperty(key);
+    }
+    // Not an Event: these belong to the master resource, not an occurrence.
+    for (const key of ['id', 'ownerId', 'isMaster', 'createdAt', 'updatedAt']) {
+      expect(overridden, `override: emitted Event property ${key}`).not.toHaveProperty(key);
+    }
+
+    expect(overridden.eventId).toBe(master.id);
+    expect(overridden.occurrenceDate).toBe('2026-09-14');
+    expect(overridden.title).toBe('Shape: overridden');
+    expect(overridden.isException).toBe(true);
+    // Unset fields inherit from the master, projected onto the occurrence date.
+    expect(overridden.localStart).toBe('2026-09-14T09:00:00');
+    expect(overridden.timezoneId).toBe('America/New_York');
+    expect(overridden.visibility).toBe('private');
   });
 
   it('carries values through the mapping, not just the keys', async () => {

@@ -106,7 +106,7 @@ _One typed, tested way for either app to reach the backend. The original plan ne
 ### Arlo
 
 - [ ] Delete `STUB_EVENTS`; wire the home screen to `GET /occurrences`.
-- [ ] Wire the create-event form to `POST /events`; wire occurrence edit/cancel to the `PUT`/`DELETE` occurrence routes.
+- [ ] Wire the create-event form to `POST /events`; wire occurrence edit/cancel to the `PATCH`/`DELETE` occurrence routes.
 - [ ] Register the device against `POST /me/devices` on launch with the Expo push token.
 - [ ] Sensitive-public rendering: grey "Busy" blocks, time and duration only, in the owner's own view. The `busyBlock` token exists. _(Server-side redaction is M7 and must land before any shared view reaches a tester.)_
 

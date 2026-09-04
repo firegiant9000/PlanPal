@@ -2,15 +2,13 @@
  * /me — the authenticated user's profile and notification preferences (M3, T10).
  *
  * Routes:
- *   GET   /me                            the caller's profile
- *   PATCH /me                            partial profile update
- *   GET   /me/notification-preferences   reminder defaults
- *   PUT   /me/notification-preferences   replace reminder defaults
- *
- * DELETE /me is defined by the contract but is NOT routed here yet — it needs a
- * SECURITY DEFINER RPC to remove the `auth.users` row, which lands with T14.
- * It therefore answers 405 rather than a 202 that deletes nothing, because a
- * GDPR endpoint that reports success without deleting is the worse failure.
+ *   GET    /me                            the caller's profile
+ *   PATCH  /me                            partial profile update
+ *   DELETE /me                            GDPR erasure (see deleteAccount)
+ *   GET    /me/notification-preferences   reminder defaults
+ *   PUT    /me/notification-preferences   replace reminder defaults
+ *   POST   /me/devices                    register a push token
+ *   DELETE /me/devices/{token}            deregister a push token
  */
 import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getUserClient } from '../_shared/auth.ts';
@@ -33,11 +31,10 @@ import {
   toNotificationPreferenceModel,
   toProfileModel,
 } from '../_shared/serialize.ts';
+import { isCalendarDate, validateTimezone, VISIBILITIES } from '../_shared/validate.ts';
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM_RE = /^\d{2}:\d{2}$/;
-const VISIBILITIES = ['private', 'shared_all', 'shared_select', 'sensitive_public'];
 const MAX_LEAD_MINUTES = 40320; // matches the notification_preferences check constraint
 
 Deno.serve(async (req: Request) => {
@@ -167,8 +164,11 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
     if (typeof body.avatarUrl !== 'string') return '"avatarUrl" must be a string or null.';
   }
   if ('birthday' in body && body.birthday !== null) {
-    if (typeof body.birthday !== 'string' || !DATE_RE.test(body.birthday)) {
-      return '"birthday" must be an ISO date (YYYY-MM-DD) or null.';
+    // A real date, not just the shape: `2026-02-31` matches the pattern, and
+    // letting it reach the `date` column raised SQLSTATE 22008, which is not in
+    // the dbError map — so a plain typo came back as a 500 INTERNAL_ERROR.
+    if (typeof body.birthday !== 'string' || !isCalendarDate(body.birthday)) {
+      return '"birthday" must be a real calendar date (YYYY-MM-DD) or null.';
     }
   }
   if ('defaultVisibility' in body) {
@@ -180,16 +180,11 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
     }
   }
   if ('timezoneId' in body) {
-    const v = body.timezoneId;
-    if (typeof v !== 'string' || v.trim() === '') return '"timezoneId" must be an IANA zone id.';
     // Validate here rather than letting an invalid zone reach the events
     // trigger, where AT TIME ZONE raises and surfaces as an opaque 500 on a
     // completely unrelated request later on.
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone: v });
-    } catch {
-      return `"timezoneId" is not a recognised IANA timezone: ${v}`;
-    }
+    const tzError = validateTimezone(body.timezoneId);
+    if (tzError) return tzError;
   }
   if ('lastActiveOptIn' in body && typeof body.lastActiveOptIn !== 'boolean') {
     return '"lastActiveOptIn" must be a boolean.';
