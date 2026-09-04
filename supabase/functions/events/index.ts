@@ -41,6 +41,12 @@ import {
   validateTimezone,
   VISIBILITIES,
 } from '../_shared/validate.ts';
+import {
+  isVariableWeek,
+  variablePlaceholder,
+  type VariableExceptionRow,
+  type VariableMasterRow,
+} from '../_shared/variable.ts';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -194,7 +200,7 @@ async function updateEvent(client: SupabaseClient, userId: string, eventId: stri
 
   const patch: Record<string, unknown> = {};
   for (const [clientKey, dbKey] of Object.entries(allowed)) {
-    if (clientKey in body) patch[dbKey] = body[clientKey];
+    if (Object.hasOwn(body, clientKey)) patch[dbKey] = body[clientKey];
   }
 
   if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided.');
@@ -266,9 +272,20 @@ async function overrideOccurrence(
   const validation = validateOccurrenceOverride(body);
   if (validation) return badRequest(validation);
 
-  // PATCH semantics: merge onto the existing exception row, if any. Building
-  // the row from the body alone silently reset every previously-overridden
-  // field that this request did not mention.
+  // Build the jsonb patch of only the keys the request actually named. The
+  // three states matter: absent means "keep", present-and-null means "clear".
+  const patch: Record<string, unknown> = {};
+  for (const clientKey of Object.keys(OVERRIDE_FIELDS)) {
+    if (Object.hasOwn(body, clientKey)) patch[clientKey] = body[clientKey];
+  }
+
+  // Reject writes the series cannot represent BEFORE persisting: a date the
+  // rule never generates is a 404, and a merged window that ends on or before
+  // it starts is a 400 (each field can be valid alone — a localEnd-only
+  // override landing behind the master's projected start, say). This needs the
+  // pre-write state, so it reads the current exception row; unlike the write
+  // itself, a stale read here only risks accepting a write that a concurrent
+  // edit has just made valid or invalid, not silently discarding a field.
   const { data: existing, error: existingErr } = await client
     .from('events')
     .select('*')
@@ -277,62 +294,85 @@ async function overrideOccurrence(
     .maybeSingle();
   if (existingErr) return dbError(existingErr, 'events:override:existing');
 
-  const row: Record<string, unknown> = {
+  const candidate: Record<string, unknown> = {
+    ...(existing ?? {}),
+    id: existing?.id ?? '00000000-0000-0000-0000-000000000000',
     owner_id: userId,
     master_event_id: eventId,
     recurrence_exception_date: date,
     is_master: false,
-    // Overriding a previously-cancelled occurrence reinstates it.
     is_cancelled: false,
     recurrence_rule: null,
     is_variable_schedule: false,
-    title: existing?.title ?? null,
-    description: existing?.description ?? null,
-    location: existing?.location ?? null,
-    local_start: existing?.local_start ?? null,
-    local_end: existing?.local_end ?? null,
-    visibility: existing?.visibility ?? null,
-    color_label: existing?.color_label ?? null,
   };
   for (const [clientKey, dbKey] of Object.entries(OVERRIDE_FIELDS)) {
-    if (clientKey in body) row[dbKey] = body[clientKey];
+    if (Object.hasOwn(body, clientKey)) candidate[dbKey] = body[clientKey];
   }
 
-  // Resolve the occurrence this write produces BEFORE persisting it, both to
-  // return the contract's EventOccurrence and to reject writes the series
-  // cannot represent: a date the rule never generates is a 404, and a merged
-  // override whose end lands on or before its start is a 400 (each field can
-  // be valid alone — e.g. a localEnd-only override behind the master's start).
   const masterRecord = mapEventRow(master as unknown as EventRow);
-  const candidateRecord = mapEventRow({
-    ...(row as unknown as EventRow),
-    id: existing?.id ?? '00000000-0000-0000-0000-000000000000',
-  });
+  const isVariable = master.is_variable_schedule === true;
+
+  // A variable master has no rule for the engine to expand, so its valid dates
+  // are the weeks /occurrences synthesises placeholders for — one predicate,
+  // shared, rather than each route deciding for itself.
+  if (isVariable && !isVariableWeek(master as unknown as VariableMasterRow, date)) {
+    return notFound('Occurrence');
+  }
+
   let resolved;
   try {
-    resolved = expandOccurrences([masterRecord, candidateRecord], { from: date, to: date }).find(
-      (o) => o.occurrenceDate === date,
-    );
+    resolved = expandOccurrences([masterRecord, mapEventRow(candidate as unknown as EventRow)], {
+      from: date,
+      to: date,
+    }).find((o) => o.occurrenceDate === date);
   } catch (error) {
     if (error instanceof UnsupportedRRuleError) {
       return badRequest(`Stored recurrence rule is not supported: ${error.message}`);
     }
     throw error;
   }
-  if (!resolved) return notFound('Occurrence');
-  if (resolved.localEnd <= resolved.localStart) {
+  // On a variable master the engine emits nothing until the week has concrete
+  // times, so an absent result there means "still un-entered", not "no such
+  // occurrence" — the date was already validated above.
+  if (!resolved && !isVariable) return notFound('Occurrence');
+  if (resolved && resolved.localEnd <= resolved.localStart) {
     return badRequest('The overridden occurrence would end on or before it starts.');
   }
 
-  const { error } = await client
-    .from('events')
-    .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' });
+  // The write is a single INSERT ... ON CONFLICT DO UPDATE inside the database,
+  // so the merge is evaluated against the live row. Doing it here as
+  // read-then-upsert lost concurrent edits ~42% of the time — see
+  // 20260904000001.
+  const { data: written, error } = await client
+    .rpc('override_occurrence', { p_master_id: eventId, p_date: date, p_patch: patch })
+    .maybeSingle();
   if (error) return dbError(error, 'events:override');
+  if (!written) return notFound('Event');
 
-  // EventOccurrenceResult, per the contract. A filled-in or overridden
-  // occurrence has concrete times, so isVariableSchedule is false — matching
-  // what /occurrences serves for this date after the write.
-  return ok({ ...resolved, isVariableSchedule: false });
+  // Re-resolve from what was actually persisted rather than from the candidate,
+  // so the response reflects the merge the database performed — including any
+  // field a concurrent PATCH set.
+  const finalRecord = mapEventRow(written as unknown as EventRow);
+  const final = expandOccurrences([masterRecord, finalRecord], { from: date, to: date }).find(
+    (o) => o.occurrenceDate === date,
+  );
+
+  // EventOccurrenceResult, per the contract.
+  if (final) {
+    // Concrete times, so this is no longer a placeholder even on a variable
+    // master — matching what /occurrences serves for the date after the write.
+    return ok({ ...final, isVariableSchedule: false });
+  }
+
+  // Variable master, week still un-entered: return the placeholder the
+  // calendar will show, so the client sees the same object either way.
+  return ok(
+    variablePlaceholder(
+      master as unknown as VariableMasterRow,
+      date,
+      written as unknown as VariableExceptionRow,
+    ),
+  );
 }
 
 async function cancelOccurrence(
@@ -469,7 +509,11 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
 function validateOccurrenceOverride(body: Record<string, unknown>): string | null {
   const keys = Object.keys(body);
   if (keys.length === 0) return 'An override must set at least one field.';
-  const unknown = keys.filter((k) => !(k in OVERRIDE_FIELDS));
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so a body of
+  // {"toString": 1} was accepted as a known field, set nothing, and still
+  // upserted is_cancelled:false — quietly reinstating a cancelled occurrence
+  // and answering 200 for a request that named no real field at all.
+  const unknown = keys.filter((k) => !Object.hasOwn(OVERRIDE_FIELDS, k));
   if (unknown.length > 0) {
     return `Unknown field(s) for an occurrence override: ${unknown.join(', ')}.`;
   }
