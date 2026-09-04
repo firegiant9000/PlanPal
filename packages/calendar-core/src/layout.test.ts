@@ -212,3 +212,52 @@ describe('layoutDay column packing', () => {
     expect(JSON.stringify(events)).toBe(snapshot);
   });
 });
+
+describe('layoutDay — endpoints that are not a plain same-day window', () => {
+  it('runs an occurrence ending on a later day to the end of this one', () => {
+    // Regression: comparing only time-of-day made this a one-hour bar.
+    const [placed] = layoutDay([
+      { localStart: '2026-06-08T09:00:00', localEnd: '2026-06-09T10:00:00' },
+    ]);
+    expect(placed!.topFraction).toBeCloseTo(9 / 24);
+    expect(placed!.heightFraction).toBeCloseTo(15 / 24);
+  });
+
+  it('gives a zero-length occurrence a sliver, not the rest of the day', () => {
+    // Regression: clamping to midnight made a 17:00 point event overlap every
+    // later event and halve its width.
+    const [placed] = layoutDay([occ('17:00', '17:00')]);
+    expect(placed!.topFraction).toBeCloseTo(17 / 24);
+    expect(placed!.heightFraction).toBeCloseTo(0.25 / 24);
+  });
+
+  it('does not let a zero-length occurrence crowd out unrelated later events', () => {
+    const result = layoutDay([occ('17:00', '17:00'), occ('19:00', '20:00')]);
+    // Two separate clusters: each renders full width.
+    expect(result.map((r) => r.columnCount)).toEqual([1, 1]);
+  });
+
+  it('still reads an inverted same-date window as crossing midnight', () => {
+    // Deliberately different from the zero-length case above. A stored row
+    // cannot be inverted (events_time_order_ck), so this is only reachable
+    // from a caller that sent times without dates, and the existing reading —
+    // 23:00 to 01:00 means overnight — is the more useful one.
+    const [placed] = layoutDay([occ('17:00', '16:00')]);
+    expect(placed!.topFraction + placed!.heightFraction).toBeCloseTo(1);
+  });
+
+  it('clamps a sliver at the very end of the day to midnight', () => {
+    const [placed] = layoutDay([occ('23:59', '23:59')]);
+    expect(placed!.topFraction + placed!.heightFraction).toBeLessThanOrEqual(1);
+  });
+
+  it('still overlaps a multi-day occurrence against the afternoon', () => {
+    const result = layoutDay([
+      { localStart: '2026-06-08T09:00:00', localEnd: '2026-06-09T10:00:00' },
+      occ('14:00', '15:00'),
+    ]);
+    // The long one really does overlap the afternoon event, so both share a
+    // two-column cluster instead of each rendering full width.
+    expect(result.every((r) => r.columnCount === 2)).toBe(true);
+  });
+});

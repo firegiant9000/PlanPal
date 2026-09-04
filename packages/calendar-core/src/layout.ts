@@ -17,6 +17,21 @@ export function hoursSinceMidnight(localDateTime: string): number {
 const HOURS_PER_DAY = 24;
 
 /**
+ * The height given to an occurrence with no usable duration.
+ *
+ * A zero-length occurrence still has to be visible and tappable, but it must
+ * not claim the rest of the day: clamping it to midnight-to-midnight (the
+ * previous behaviour) made a single 17:00 point event overlap every evening
+ * event on the sheet and halve their widths.
+ */
+const MIN_HOURS = 0.25;
+
+/** The `YYYY-MM-DD` part, for comparing which day an endpoint falls on. */
+function datePart(localDateTime: string): string {
+  return localDateTime.slice(0, 10);
+}
+
+/**
  * Place a day's occurrences into non-overlapping columns.
  *
  * Two passes. The first assigns each occurrence the leftmost column free at
@@ -58,13 +73,26 @@ export function layoutDay<T extends DayOccurrence>(
 
   for (const occurrence of sorted) {
     const start = hoursSinceMidnight(occurrence.localStart);
-    let end = hoursSinceMidnight(occurrence.localEnd);
+    let end: number;
 
-    // An occurrence whose end is at or before its start either crosses
-    // midnight or is zero-length. Clamp to the end of the day rather than
-    // emitting a negative height, which would render as an inverted bar or
-    // silently vanish. Splitting across days is a later concern.
-    if (end <= start) end = HOURS_PER_DAY;
+    if (datePart(occurrence.localEnd) > datePart(occurrence.localStart)) {
+      // Ends on a later day: it runs to the end of this one. Comparing only
+      // time-of-day (the previous behaviour) made a 25-hour event that started
+      // 09:00 and ended 10:00 the next day render as a one-hour bar, and it
+      // failed to claim column space against the afternoon events it really
+      // overlaps. Splitting across days is a later concern.
+      end = HOURS_PER_DAY;
+    } else {
+      end = hoursSinceMidnight(occurrence.localEnd);
+      if (end < start) {
+        // Same date but the end time is behind the start: read as crossing
+        // midnight, and run to the end of the day.
+        end = HOURS_PER_DAY;
+      } else if (end === start) {
+        // Zero-length. A sliver, not the rest of the day — see MIN_HOURS.
+        end = Math.min(start + MIN_HOURS, HOURS_PER_DAY);
+      }
+    }
 
     let column = columnEnds.findIndex((columnEnd) => columnEnd <= start);
     if (column === -1) {

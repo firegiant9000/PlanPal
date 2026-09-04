@@ -77,3 +77,26 @@ describe('year handling', () => {
     expect(second).toBe('Thanksgiving Day');
   });
 });
+
+describe('getHolidayName — observed dates that cross a year boundary', () => {
+  it("finds New Year's Day observed on 31 December of the previous year", () => {
+    // 2028-01-01 is a Saturday, so it is observed on 2027-12-31 — a date whose
+    // own year map does not contain it. Regression: this returned undefined and
+    // the holiday vanished from the calendar in 2028, 2033, ...
+    expect(getHolidayName('2027-12-31')).toBe("New Year's Day");
+  });
+
+  it('does not also report the unobserved Saturday itself', () => {
+    expect(getHolidayName('2028-01-01')).toBeUndefined();
+  });
+
+  it("finds the Sunday-shifted New Year's Day in its own year", () => {
+    // 2033-01-01 is a Saturday -> observed 2032-12-31.
+    expect(getHolidayName('2032-12-31')).toBe("New Year's Day");
+  });
+
+  it('leaves an ordinary year-end date alone', () => {
+    // 2026-01-01 is a Thursday, so 2025-12-31 is not a holiday.
+    expect(getHolidayName('2025-12-31')).toBeUndefined();
+  });
+});

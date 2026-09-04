@@ -93,8 +93,17 @@ function getHolidays(year: number): HolidaysByDate {
   return cache.get(year)!;
 }
 
-/** Return the holiday name for a YYYY-MM-DD date, or undefined if none. */
+/**
+ * Return the holiday name for a YYYY-MM-DD date, or undefined if none.
+ *
+ * Consults the neighbouring years, not just the date's own. An observed date
+ * can land outside the year that generated it: when New Year's Day falls on a
+ * Saturday it is observed on 31 December of the *previous* year, so
+ * `computeHolidays(2028)` files that holiday under `2027-12-31`. Looking only
+ * at `getHolidays(2027)` missed it, and the holiday disappeared from the
+ * calendar entirely in every such year (2028, 2033, ...).
+ */
 export function getHolidayName(date: string): string | undefined {
   const year = Number(date.slice(0, 4));
-  return getHolidays(year)[date];
+  return getHolidays(year)[date] ?? getHolidays(year + 1)[date] ?? getHolidays(year - 1)[date];
 }
