@@ -5,7 +5,7 @@
  * platforms: it is real logic, it was interleaved with JSX, and two
  * independent implementations would drift within a sprint.
  */
-import type { DayOccurrence, PositionedOccurrence } from './types.js';
+import type { DayOccurrence, PositionedOccurrence } from './types';
 
 /** Hours since midnight, as a fraction. `09:30` -> 9.5. */
 export function hoursSinceMidnight(localDateTime: string): number {

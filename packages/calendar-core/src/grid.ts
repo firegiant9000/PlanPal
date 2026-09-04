@@ -1,5 +1,5 @@
 /** Month and week grid construction. Extracted from apps/mobile (T17). */
-import type { CalendarDay } from './types.js';
+import type { CalendarDay } from './types';
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');

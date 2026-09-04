@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getHolidayName } from './holidays.js';
+import { getHolidayName } from './holidays';
 
 describe('fixed-date holidays', () => {
   it.each([

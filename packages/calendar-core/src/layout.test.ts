@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { hoursSinceMidnight, layoutDay } from './layout.js';
-import type { DayOccurrence } from './types.js';
+import { hoursSinceMidnight, layoutDay } from './layout';
+import type { DayOccurrence } from './types';
 
 function occ(start: string, end: string, extra: Partial<DayOccurrence> = {}) {
   return {

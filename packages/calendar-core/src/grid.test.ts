@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMonthGrid, buildWeekDays, currentYearMonth, today } from './grid.js';
+import { buildMonthGrid, buildWeekDays, currentYearMonth, today } from './grid';
 
 const PINNED = '2026-06-15';
 

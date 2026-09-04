@@ -6,8 +6,8 @@
  * the rules cannot fork across platforms (AD-3). If a calendar rule appears in
  * a `.tsx` on both sides, it belongs in this package instead.
  */
-export { today, currentYearMonth, buildMonthGrid, buildWeekDays } from './grid.js';
-export { layoutDay, hoursSinceMidnight } from './layout.js';
-export { getHolidayName } from './holidays.js';
-export { fmtTime, fmtMonthHeader, fmtDayLabel, fmtHourLabel } from './format.js';
-export type { CalendarDay, DayOccurrence, PositionedOccurrence } from './types.js';
+export { today, currentYearMonth, buildMonthGrid, buildWeekDays } from './grid';
+export { layoutDay, hoursSinceMidnight } from './layout';
+export { getHolidayName } from './holidays';
+export { fmtTime, fmtMonthHeader, fmtDayLabel, fmtHourLabel } from './format';
+export type { CalendarDay, DayOccurrence, PositionedOccurrence } from './types';

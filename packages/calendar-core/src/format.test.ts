@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtDayLabel, fmtHourLabel, fmtMonthHeader, fmtTime } from './format.js';
+import { fmtDayLabel, fmtHourLabel, fmtMonthHeader, fmtTime } from './format';
 
 describe('fmtTime', () => {
   it.each([
