@@ -84,6 +84,43 @@ describe('SECURITY DEFINER grant audit', () => {
     expect(unexplained).toEqual([]);
   });
 
+  it('has no function of ours executable by PUBLIC, whatever its security mode', async () => {
+    // The audit above inspects SECURITY DEFINER functions only, which is why it
+    // did not notice that generate_friend_code(), events_derive_utc() and
+    // set_updated_at() still carried Postgres's default PUBLIC execute grant.
+    // None was exploitable — all three are SECURITY INVOKER — but the gap is
+    // one word wide: adding `security definer` to a function PUBLIC can already
+    // execute reproduces the Month 2 hole with no revoke to forget, and the
+    // check above would only have reported it afterwards.
+    //
+    // So the invariant is broader than §15's wording: nothing we own is
+    // PUBLIC-executable, and a function becoming SECURITY DEFINER later needs
+    // no second thought about grants.
+    //
+    // Extension-owned functions (citext, pgcrypto) are excluded via pg_depend:
+    // they are installed into `public` by `create extension`, PUBLIC execute is
+    // how they are meant to work, and we do not control their grants.
+    const rows = await query<{ fn: string }>(
+      `
+      select format('%I.%I(%s)', n.nspname, p.proname,
+                    pg_get_function_identity_arguments(p.oid)) as fn
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and has_function_privilege('public', p.oid, 'EXECUTE')
+         and not exists (
+               select 1
+                 from pg_depend d
+                where d.objid = p.oid
+                  and d.classid = 'pg_proc'::regclass
+                  and d.deptype = 'e')
+       order by 1
+      `,
+    );
+
+    expect(rows.map((r) => r.fn)).toEqual([]);
+  });
+
   it('the allowlist has no stale entries', async () => {
     // An allowlist that outlives the grant it excuses is worse than none: it
     // quietly pre-approves whatever takes that name next.
