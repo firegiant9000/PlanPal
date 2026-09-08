@@ -14,7 +14,12 @@ max_rows = 1000
 [db]
 port = 54322
 shadow_port = 54320
-major_version = 15
+# Must match the cloud projects. planpal-dev runs Postgres 17.6, and a local
+# stack on 15 would mean every migration proof and all 194 integration tests
+# validated behaviour on a major version we never deploy to.
+# `supabase link` records the real value in supabase/.temp/postgres-version —
+# check that against this line when provisioning staging and prod.
+major_version = 17
 
 [studio]
 enabled = true
