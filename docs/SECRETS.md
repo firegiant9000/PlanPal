@@ -34,6 +34,65 @@ who can access it, and how often it rotates.
 | `SNAP_CLIENT_ID` / `_SECRET` | Snap share (V1) | server | ❌ never | 180 days |
 | `SENTRY_DSN` | all | mixed | ⚠️ DSN is low-sensitivity | on compromise |
 | `*_POSTHOG_KEY` | all | client | ✅ project API key | on compromise |
+| `CRON_SECRET` | `notify-scheduler` + the `pg_cron` job | server | ❌ never | 90 days + on compromise |
+| `notify_function_url` (vault) | the `pg_cron` job | server (in-database) | ⚠️ not a secret, but environment-specific | on project change |
+| `anon_key` (vault) | the `pg_cron` job | server (in-database) | ✅ same value as the client anon key | with the project's anon key |
+
+## Vault secrets for the scheduler
+
+The `pg_cron` job that drives `notify-scheduler` runs **inside the database**, so
+it cannot read Edge Function secrets or environment variables. It reads three
+values from `supabase_vault` at each tick instead. Create them once per
+environment, as an operator with dashboard access:
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1/notify-scheduler', 'notify_function_url');
+select vault.create_secret('<anon key>', 'anon_key');
+select vault.create_secret('<random 32+ chars>', 'cron_secret');
+```
+
+| Vault name            | What it is                                 | Rotation owner |
+| --------------------- | ------------------------------------------ | -------------- |
+| `notify_function_url` | the function's URL for this environment     | Scott          |
+| `anon_key`            | the project's anon key (public-safe)        | Scott          |
+| `cron_secret`         | the shared secret the handler checks        | Scott          |
+
+The job sends `anon_key` **twice** — once as `apikey` and once as
+`Authorization: Bearer …`. The cloud gateway rejects a request carrying only
+`apikey` with `401 UNAUTHORIZED_NO_AUTH_HEADER`, even though the local Kong
+accepts it, so a schedule that works locally fails on every cloud environment.
+See `supabase/migrations/20260909000004_notify_cron_authorization_header.sql`.
+
+**The same `cron_secret` value must also be set as a function secret:**
+
+```
+supabase secrets set CRON_SECRET=<the same value> --project-ref <ref>
+```
+
+The handler compares the `X-Cron-Secret` request header against its own
+`CRON_SECRET` env var — it never reads the vault. So the vault copy is what the
+job *sends* and the function secret is what the function *expects*; rotating one
+without the other gives a 403 on every tick. Rotate them together, vault first.
+
+Values are read fresh at each tick, so the schedule can be created before the
+secrets exist; until they do, each tick fails visibly rather than silently doing
+nothing. **Which layer the failure lands in depends on what is wrong, and the
+difference matters when diagnosing at 3am** (verified on `planpal-dev`,
+2026-09-08):
+
+| What is wrong          | `cron.job_run_details` | `net._http_response`          |
+| ---------------------- | ---------------------- | ----------------------------- |
+| a secret is **missing**| `failed` — `null value in column "url"` | **nothing at all** — never queued |
+| a secret is **wrong**  | `succeeded`            | `403` from the handler        |
+| the gateway rejects it | `succeeded`            | `401` from Kong               |
+
+So a green `cron.job_run_details` is **not** evidence a tick worked — it only
+means the job made the call. Always check both layers. On dev this was not
+hypothetical: 25 consecutive `succeeded` ticks covered a stretch in which every
+single request was being rejected `401` by the gateway.
+
+> Never paste any of these values into this file, a migration, a commit message,
+> or the Obsidian vault. This document records names, owners and cadence only.
 
 ## Rotation policy
 

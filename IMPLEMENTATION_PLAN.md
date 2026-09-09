@@ -120,7 +120,9 @@ The Edge Functions currently assert `as unknown as EventRow[]` on every query re
 
 `supabase gen types typescript` produces a `Database` type from the live schema; `createClient<Database>(...)` then types `.from('events').select()` properly, and a column renamed in a migration becomes a compile error rather than a runtime `undefined`.
 
-**Consequence:** T32. Until it lands, every widening cast carries a comment saying why — an unexplained `as unknown as` is indistinguishable from a bug.
+**Correction (2026-09-08, T32).** That last claim is true **only once the `.select()` argument is a single string literal.** supabase-js parses the select string at the type level, and a concatenated list widens to `string`, which collapses inference to `GenericStringError` no matter how good the generated types are. The two therefore have to land together, literals first — verified by renaming `color_label` on a throwaway migration and watching `deno check` produce `SelectQueryError<"column 'color_label' does not exist on 'events'.">` at the call site and `Property 'color_label' does not exist … Did you mean 'colour_label'?` in `serialize.ts`.
+
+**Status:** done. The 22 `as unknown as` casts are gone; the row interfaces in `_shared/serialize.ts`, `ical.ts` and `variable.ts` are aliases or `Pick`s of the generated `Database`, and `ci.yml`'s `integration` job regenerates and `git diff --exit-code`s the committed types so a migration cannot land without them.
 
 ---
 
@@ -404,7 +406,7 @@ Run `pnpm db:reset` after each to prove the chain applies from scratch.
 
 Each: edit `openapi.yaml` → `pnpm contract:generate` → commit the regenerated types. `contract.yml` fails if they drift.
 
-### The occurrence override route — 🔸 _needs Scott's explicit sign-off_
+### The occurrence override route — ✅ _decided 2026-09-08: keep `PATCH` → `EventOccurrence`_
 
 The code, the contract and this document all disagreed three ways. `openapi.yaml`
 declared `PATCH` returning `EventOccurrenceResult`; the function implemented `PUT`
@@ -512,7 +514,14 @@ T3 (Apple) runs beside everything and gates T25/T26. If it slips, M4 slips regar
 ## 15. Standing rules for this phase
 
 - Recurrence is implemented once (AD-1). Anything else consumes the mirror.
-- Every `SECURITY DEFINER` function ships with `revoke execute from public, anon, authenticated` **in the same migration**.
+- Every `SECURITY DEFINER` function ships with `revoke execute from public, anon, authenticated`
+  **in the same migration** — **unless the function takes no target parameter and derives its
+  subject from `auth.uid()`; every such exception is listed in `grants.test.ts` with its
+  justification.** _(Decided 2026-09-08 for `delete_me()`: a function with no argument cannot be
+  aimed at another account, and a user-scoped client has no rights in the `auth` schema, so
+  revoking it would leave GDPR erasure uncallable. The allowlist is machine-checked in both
+  directions — an unlisted grant is a finding, and a listed entry whose grant has gone is also a
+  finding — both verified by watched failure on 2026-09-08.)_
 - Every new endpoint lands with an integration test in the same PR.
 - Every new shared package sets coverage thresholds when it is created, not later.
 - A contract change is a two-dev decision, and the regenerated types are committed with it.

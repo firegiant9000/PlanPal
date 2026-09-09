@@ -93,6 +93,58 @@ giveaway is a log line proving a branch ran that no longer exists in the file.
 
 CI is unaffected by both: its stack always starts fresh.
 
+**The `notify-scheduler` spec needs a function secret, written before the stack
+starts.** That handler refuses to run without `CRON_SECRET` — it answers `500
+{"error":"Server misconfigured."}` — and the Edge runtime reads function
+environment variables from `supabase/functions/.env` when `supabase start`
+runs. So:
+
+```bash
+echo CRON_SECRET=test-cron-secret > supabase/functions/.env
+pnpm db:stop && pnpm db:start    # a container restart will NOT pick this up
+```
+
+`.env*` is gitignored, so this file is never committed; CI writes it in the
+`integration` job before `supabase start`. The tell that it was missed is the
+scheduler spec failing with 500 `Server misconfigured.` rather than the 403 its
+wrong-secret case expects — that 500 → 403 transition is the proof the file was
+read. See [SECRETS.md](SECRETS.md) for what the value means in a real
+environment.
+
+**iCal real-world import is a manual check, not a suite assertion.** The
+integration suite verifies RFC 5545 conformance (CRLF, 75-octet folding, TEXT
+escaping, `TZID` on every local timestamp, `RRULE` passthrough, `EXDATE`,
+`RECURRENCE-ID`), but it cannot verify that a third-party importer accepts the
+file. `planpal-sample.ics` references `TZID=America/New_York` with no
+`VTIMEZONE` component, which RFC 5545 §3.6.5 requires — Google tolerates a bare
+IANA TZID, Outlook desktop and some Apple Calendar versions shift or reject. So
+"RFC 5545 verified by test" is narrower than it reads, and T13 is not done until
+an import into **both** Google Calendar and Outlook.com has been performed and
+dated against a written-down expected occurrence set (task E4).
+
+**The expected occurrence set, written down 2026-09-08 — before any import.** It
+is recorded here rather than agreed afterwards, because a set you read off the
+importer is not a prediction and cannot fail. `planpal-sample.ics` (regenerated
+2026-09-08 against the current export handler; byte-identical to the 2026-09-03
+copy apart from `UID`/`DTSTAMP`/`CREATED`/`LAST-MODIFIED`) must produce in
+September, in `America/New_York`, exactly:
+
+| Date           | Expected                          | Why                        |
+| -------------- | --------------------------------- | -------------------------- |
+| Mon 2026-09-07 | 09:00–09:30 "Weekly standup, …"   | `DTSTART` of the series    |
+| Mon 2026-09-14 | **11:00–11:30** "Standup (moved)" | `RECURRENCE-ID` override   |
+| Mon 2026-09-21 | **no event at all**               | `EXDATE`                   |
+| Mon 2026-09-28 | 09:00–09:30 "Weekly standup, …"   | series continues unchanged |
+
+Three occurrences, not four. Check specifically that 09-14 shows **11:00 and not
+09:00** (the override applied) and that 09-21 is **empty rather than a 09:00
+entry** (the cancellation applied) — those two are what a tolerant importer gets
+wrong silently. A time shifted by a whole hour on any row means the bare `TZID`
+was not honoured, and `VTIMEZONE` generation moves from M9 into this month.
+
+**Google alone is not sufficient evidence.** It tolerates bare IANA TZIDs, so it
+is the importer that proves least; Outlook.com is the one that can fail.
+
 Two conventions worth keeping:
 
 - **Each spec creates its own users** and deletes them in `afterAll`, rather
@@ -122,19 +174,45 @@ deno lint && deno check events/index.ts   # from supabase/functions
 `pnpm test` runs in CI on every PR (`.github/workflows/ci.yml`), alongside `lint`,
 `typecheck`, and `build`.
 
-## Tooling note — two runners (to consolidate)
+## Tooling note — three runners, and why the third is allowed
 
-The workspace currently has **two** test runners:
+The workspace has **three** test runners. Two of them are a consolidation
+target; the third is a deliberate, documented exception.
 
-- **Vitest** — used by `types`, `design-tokens`, `analytics`, and (going forward)
-  the apps. ESM-native, zero-config with our TS setup, built-in coverage.
-- **`node:test`** — used by `@planpal/recurrence` (compiles to `dist/` then runs
-  `node --test`), an independent backend-track choice.
+- **Vitest** — `types`, `design-tokens`, `analytics`, `calendar-core`,
+  `api-client`, `apps/web` (jsdom + Testing Library, task H1) and the
+  Edge Function integration suite in `supabase/tests`. ESM-native, zero-config
+  with our TS setup, built-in coverage.
+- **`node:test`** — `@planpal/recurrence` only (compiles to `dist/` then runs
+  `node --test`), an independent backend-track choice. **Still a consolidation
+  candidate:** standardise on Vitest unless the recurrence engine has a specific
+  reason to stay, and that is the backend track's call to make.
+- **`jest-expo`** — `apps/mobile` only. **Decision D-H, answered 2026-09-08.**
 
-Both are green in CI today. **Decision for the team:** standardize on Vitest for
-consistency (one coverage report, one watch mode) unless the recurrence engine has
-a specific reason to stay on `node:test`. Flagged here rather than changed
-unilaterally — `@planpal/recurrence` is owned by the backend track.
+### Why `jest-expo` is the exception
+
+Vitest cannot transform React Native's untranspiled Flow sources. The
+alternative was Vitest scoped to `src/lib/**` and pure hooks, with the
+`expo export` bundle gate standing in as the test — which leaves component
+rendering untested on the platform that matters most, and Playwright cannot
+reach React Native at all.
+
+So `apps/mobile` renders components under `jest-expo`, and **nowhere else in the
+workspace may add a Jest config.** The accepted cost is three coverage reports
+and three watch modes; do not try to unify them.
+
+Two configuration details, both found by watching them fail, recorded because
+neither is guessable:
+
+- **`jest-expo` must match the Expo SDK line.** `pnpm add -D jest-expo` installs
+  `latest` (57.x), which fails against SDK 53 with
+  `Cannot find module 'expo/src/async-require/messageSocket'`. It is pinned to
+  `~53.0.0`, and `jest` with it to `~29.7.0`.
+- **`render` from `@testing-library/react-native` 14 is async** and must be
+  awaited, and its queries must be taken from the return value rather than the
+  `screen` singleton — under `node-linker=hoisted` the singleton resolves to a
+  different module instance and every query reports "`render` function has not
+  been called".
 
 ## Conventions
 
