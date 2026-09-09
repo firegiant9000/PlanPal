@@ -7,19 +7,12 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { theme } from '@planpal/ui';
 import { fmtTime } from '@planpal/calendar-core';
+import { eventColor, type OccurrenceItem } from '../../lib/occurrenceWindow';
 
-export interface OccurrenceItem {
-  eventId: string;
-  occurrenceDate: string;
-  title: string;
-  localStart: string;
-  localEnd: string;
-  timezoneId: string;
-  visibility: string;
-  colorLabel: string | null;
-  isException: boolean;
-  isVariableSchedule: boolean;
-}
+// The shape and the colour rule live in `lib/occurrenceWindow`, which imports
+// no React Native and so is testable without a renderer. Re-exported because
+// several calendar components already import the type from here.
+export type { OccurrenceItem };
 
 interface EventBarProps {
   event: OccurrenceItem;
@@ -29,14 +22,6 @@ interface EventBarProps {
   column: number; // 0-based column index for overlap layout
   totalColumns: number; // total columns in this time slot
   onPress: (event: OccurrenceItem) => void;
-}
-
-const EVENT_COLORS = ['#5b6cff', '#30a46c', '#e5484d', '#ffb224', '#6e56cf', '#12a594'];
-
-function eventColor(event: OccurrenceItem, colIndex: number): string {
-  if (event.visibility === 'sensitive_public') return theme.colors.busyBlock;
-  if (event.colorLabel) return event.colorLabel;
-  return EVENT_COLORS[colIndex % EVENT_COLORS.length]!;
 }
 
 export function EventBar({

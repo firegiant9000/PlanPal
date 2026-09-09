@@ -53,14 +53,25 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
-        run: npx --yes supabase@latest link --project-ref "$PROJECT_REF"
+        run: npx --yes supabase@2.117.0 link --project-ref "$PROJECT_REF"
 
       - name: Apply migrations
         if: steps.gate.outputs.configured == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
-        run: npx --yes supabase@latest db push
+        run: npx --yes supabase@2.117.0 db push
+
+      # Set BEFORE the deploy, so the isolates that come up already read it —
+      # PLANPAL_VERSION is read once per isolate, and setting it afterwards
+      # would leave the freshly-deployed functions reporting the previous
+      # deploy's SHA until they happened to recycle.
+      - name: Stamp the deployed build's version
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+        run: npx --yes supabase@2.117.0 secrets set "PLANPAL_VERSION=$GITHUB_SHA" --project-ref "$PROJECT_REF"
 
       # Every function, enumerated by the CLI rather than by hand. A written-out
       # list is what let ci.yml silently stop type-checking two functions this
@@ -71,7 +82,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
-        run: npx --yes supabase@latest functions deploy --project-ref "$PROJECT_REF"
+        run: npx --yes supabase@2.117.0 functions deploy --project-ref "$PROJECT_REF"
 
       # The reason /healthz exists. `db push` and `functions deploy` can both
       # report success while the deployed API cannot reach its database, so the
@@ -103,6 +114,14 @@ jobs:
           # database in the body, and a proxy error page would also be a 200.
           if ! grep -q '"status":"ok"' response.json; then
             echo "::error::/healthz answered 200 but not {\"status\":\"ok\"} — the API is up but unhealthy."
+            exit 1
+          fi
+          # And "healthy" is still not "the build I just deployed". Without this,
+          # a functions deploy that silently did nothing leaves the PREVIOUS
+          # build answering 200/ok and the smoke check passing. Compare the
+          # reported version against the commit this run deployed.
+          if ! grep -q "\"version\":\"${GITHUB_SHA}\"" response.json; then
+            echo "::error::/healthz reported a different build than this run deployed (expected version ${GITHUB_SHA}). The deploy did not take effect, or PLANPAL_VERSION was not stamped."
             exit 1
           fi
 

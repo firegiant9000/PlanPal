@@ -11,6 +11,9 @@ on:
     paths:
       - 'packages/api-contract/**'
       - 'packages/types/**'
+      # The spec also generates the Edge Functions' wire types, so a hand-edit
+      # there has to trigger this workflow too.
+      - 'supabase/functions/_shared/contract-types.ts'
       - '.github/workflows/contract.yml'
       - 'pnpm-lock.yaml'
   push:
@@ -38,10 +41,15 @@ jobs:
       - name: Regenerate types from spec
         run: pnpm --filter @planpal/api-contract generate
 
+      # Two outputs from one spec: the client types in @planpal/types and the
+      # Edge Functions' wire types. `generate` emits both, so both are diffed —
+      # otherwise the backend half could drift silently while the frontend half
+      # stayed honest, which is how three hand-written copies of `Event` came
+      # to exist in the first place.
       - name: Fail if generated types drift from the spec
         run: |
-          if ! git diff --exit-code -- packages/types/src/generated; then
-            echo "::error::Generated types are out of date. Run 'pnpm contract:generate' and commit the result."
+          if ! git diff --exit-code -- packages/types/src/generated supabase/functions/_shared/contract-types.ts; then
+            echo "::error::Generated types are out of date. Run 'pnpm contract:generate' and commit BOTH outputs."
             exit 1
           fi
 

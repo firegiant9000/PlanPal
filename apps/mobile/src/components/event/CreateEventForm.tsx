@@ -28,6 +28,9 @@ import {
 } from 'react-native';
 import { theme } from '@planpal/ui';
 import { today } from '@planpal/calendar-core';
+// RRULE construction lives beside the parser (T28, AD-3) — web's event form
+// consumes the same function, so the two platforms cannot build divergent rules.
+import { buildRRule } from '@planpal/recurrence';
 
 export type Visibility = 'private' | 'shared_all' | 'shared_select' | 'sensitive_public';
 
@@ -79,27 +82,6 @@ const LEAD_TIME_OPTIONS = [
   { label: '1 day before', minutes: 1440 },
 ];
 
-function buildRRule(
-  repeat: RepeatOption,
-  endRepeat: EndRepeatOption,
-  endDate: string,
-  count: string,
-): string | null {
-  if (repeat === 'none' || repeat === 'variable') return null;
-  let rule = '';
-  if (repeat === 'daily') rule = 'FREQ=DAILY';
-  else if (repeat === 'weekly') rule = 'FREQ=WEEKLY';
-  else if (repeat === 'biweekly') rule = 'FREQ=WEEKLY;INTERVAL=2';
-  else if (repeat === 'monthly') rule = 'FREQ=MONTHLY';
-  else if (repeat === 'yearly') rule = 'FREQ=YEARLY';
-
-  if (endRepeat === 'ondate' && endDate) {
-    rule += `;UNTIL=${endDate.replace(/-/g, '')}`;
-  } else if (endRepeat === 'aftercount' && count) {
-    rule += `;COUNT=${count}`;
-  }
-  return rule || null;
-}
 
 export function CreateEventForm({
   initialDate = today(),
@@ -138,7 +120,7 @@ export function CreateEventForm({
       localStart: `${date}T${startTime}:00`,
       localEnd: `${date}T${endTime}:00`,
       timezoneId,
-      recurrenceRule: buildRRule(repeat, endRepeat, endDate, count),
+      recurrenceRule: buildRRule({ repeat, endRepeat, endDate, count }),
       isVariableSchedule: repeat === 'variable',
       visibility,
       notificationLeadTimes: leadTimes,
