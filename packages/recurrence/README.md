@@ -2,7 +2,7 @@
 
 Server-side **recurrence engine** — expands `events` (master-rule + sparse
 exceptions) into concrete occurrences over a date range. This is the **Phase 4
-kickoff** (MONTH_1_PLAN.md): a tested spike against the frozen Phase 2 schema.
+kickoff** (docs/planning/MONTH_1_PLAN.md): a tested spike against the frozen Phase 2 schema.
 **The client never expands rules** — expansion is server-side only.
 
 ## Usage

@@ -2,7 +2,7 @@
 
 How to get PlanPal running locally, plus the manual cloud steps Phase 0 can't
 automate. Tracks the Phase 0 checklist in
-[MONTH_1_PLAN.md](../MONTH_1_PLAN.md).
+[MONTH_1_PLAN.md](planning/MONTH_1_PLAN.md).
 
 ## Prerequisites
 
