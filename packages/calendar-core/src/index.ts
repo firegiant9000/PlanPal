@@ -10,4 +10,6 @@ export { today, currentYearMonth, buildMonthGrid, buildWeekDays } from './grid';
 export { layoutDay, hoursSinceMidnight } from './layout';
 export { getHolidayName } from './holidays';
 export { fmtTime, fmtMonthHeader, fmtDayLabel, fmtHourLabel } from './format';
+export { EVENT_PALETTE, resolveEventColor } from './eventColor';
+export type { ColorableOccurrence } from './eventColor';
 export type { CalendarDay, DayOccurrence, PositionedOccurrence } from './types';

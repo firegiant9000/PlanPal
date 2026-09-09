@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { civilMidnightMs, occurrenceDates, parseRRule } from './rrule.js';
+import { buildRRule, civilMidnightMs, occurrenceDates, parseRRule } from './rrule.js';
 import { UnsupportedRRuleError } from './types.js';
 
 // 2026-06-08 is a Monday.
@@ -235,4 +235,78 @@ test('COUNT is evaluated from series start, not the query window', () => {
   // Window restricted to [06-15, 06-30] — generator still returns only 06-15.
   const windowed = datesOf('FREQ=WEEKLY;BYDAY=MO;COUNT=2', MON_2026_06_08, civilMidnightMs(2026, 6, 30));
   assert.equal(windowed.filter((d) => d >= '2026-06-15').length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// buildRRule — moved here from apps/mobile's event form (T28).
+//
+// RRULE construction belongs beside the parser. While it lived in the mobile
+// form, web growing its own event form meant a second implementation, and the
+// two would have drifted silently: nothing compares them.
+// ---------------------------------------------------------------------------
+test('builds a weekly BYDAY rule from a form selection', () => {
+  assert.equal(
+    buildRRule({ repeat: 'weekly', byDay: ['MO', 'WE'], endRepeat: 'never' }),
+    'FREQ=WEEKLY;BYDAY=MO,WE',
+  );
+});
+
+test('round-trips every rule it builds through the parser', () => {
+  // The assertion that makes the move safe: anything the form can construct
+  // must be something the engine accepts. A builder that emits a rule the
+  // parser rejects fails at event-creation time, in front of the user.
+  const repeats = ['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as const;
+  const endings = [
+    { endRepeat: 'never' as const },
+    { endRepeat: 'ondate' as const, endDate: '2026-12-31' },
+    { endRepeat: 'aftercount' as const, count: '5' },
+  ];
+
+  let checked = 0;
+  for (const repeat of repeats) {
+    for (const ending of endings) {
+      for (const byDay of [undefined, ['MO', 'WE']]) {
+        const rule = buildRRule({ repeat, byDay, ...ending });
+        assert.ok(rule !== null, `${repeat} produced no rule`);
+        // Throws UnsupportedRRuleError if the builder emitted something the
+        // engine cannot expand.
+        const parsed = parseRRule(rule);
+        assert.ok(parsed.freq.length > 0);
+        checked += 1;
+      }
+    }
+  }
+  // Guards against the loop silently covering nothing.
+  assert.equal(checked, repeats.length * endings.length * 2);
+});
+
+test('returns null for the non-recurring selections', () => {
+  assert.equal(buildRRule({ repeat: 'none', endRepeat: 'never' }), null);
+  // A variable-schedule master has no rule: its times are not yet known.
+  assert.equal(buildRRule({ repeat: 'variable', endRepeat: 'never' }), null);
+});
+
+test('ignores an end selection whose value is missing', () => {
+  // The form can be in 'ondate' with no date chosen yet. Emitting `UNTIL=`
+  // would produce a rule the parser rejects.
+  assert.equal(buildRRule({ repeat: 'daily', endRepeat: 'ondate' }), 'FREQ=DAILY');
+  assert.equal(buildRRule({ repeat: 'daily', endRepeat: 'aftercount' }), 'FREQ=DAILY');
+});
+
+test('emits UNTIL and COUNT in the forms the parser accepts', () => {
+  assert.equal(
+    buildRRule({ repeat: 'daily', endRepeat: 'ondate', endDate: '2026-12-31' }),
+    'FREQ=DAILY;UNTIL=20261231',
+  );
+  assert.equal(
+    buildRRule({ repeat: 'daily', endRepeat: 'aftercount', count: 5 }),
+    'FREQ=DAILY;COUNT=5',
+  );
+});
+
+test('biweekly is a weekly rule with INTERVAL=2, and BYDAY still applies', () => {
+  assert.equal(
+    buildRRule({ repeat: 'biweekly', byDay: ['TU'], endRepeat: 'never' }),
+    'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU',
+  );
 });

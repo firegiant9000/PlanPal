@@ -7,6 +7,12 @@
  */
 export { expandOccurrences } from './expand.js';
 export { parseRRule, occurrenceDates, type ParsedRule } from './rrule.js';
+export {
+  buildRRule,
+  type RRuleSelection,
+  type RepeatSelection,
+  type EndRepeatSelection,
+} from './rrule.js';
 export { localToUtc, parseLocal, formatLocal, type Civil } from './timezone.js';
 export { mapEventRow, type EventRow } from './row.js';
 export {
