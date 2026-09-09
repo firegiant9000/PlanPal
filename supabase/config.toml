@@ -64,3 +64,32 @@ enabled = true
 client_id = "env(SUPABASE_AUTH_APPLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_APPLE_SECRET)"
 redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+# --- Analytics / log shipping: OFF because of a WINDOWS-ONLY defect ---
+#
+# ON macOS OR LINUX, SET THIS BACK TO `true`. The defect below does not exist
+# there, vector works, and you lose Studio's Logs pane for no reason. It is
+# committed as `false` because this file is shared and has no per-machine
+# override, not because analytics is unwanted.
+#
+# The Windows defect: the vector container that feeds analytics cannot reach the
+# Docker daemon. CLI 2.117.0 sees a `npipe://` docker context and hands vector
+# DOCKER_HOST=http://host.docker.internal:2375 with NO socket bind-mount (only
+# the `unix://` branch mounts one), so its only source dies, vector exits 0, and
+# `unless-stopped` restarts it forever (~300 times before this was noticed).
+# Upstream ships this knowingly: the binary contains "Analytics on Windows
+# requires Docker daemon exposed on tcp://localhost:2375." and sets
+# `excludeFromHealthWatch: isNpipe`.
+#
+# It had shipped 0 log rows, so Studio Logs was already empty on Windows --
+# turning it off loses nothing there and drops BOTH supabase_analytics
+# (~625 MiB, the biggest container in the stack) and supabase_vector, taking the
+# stack from ~2055 to ~1430 MiB. That headroom matters against a 4 GB
+# .wslconfig cap. Use `docker logs <container>` for local debugging instead.
+#
+# To re-enable ON WINDOWS: set true AND tick Docker Desktop > Settings > General
+# > "Expose daemon on tcp://localhost:2375 without TLS". Be aware that exposes
+# an unauthenticated, root-equivalent Docker API to every local process and
+# container -- which is why it is off rather than on.
+[analytics]
+enabled = false
