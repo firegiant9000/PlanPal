@@ -36,6 +36,10 @@ export default function EditEventPage() {
           title: event.title,
           description: event.description ?? null,
           visibility: event.visibility,
+          // The times matter as much as the date: EventForm will not submit
+          // without them, so omitting them makes this route unsaveable.
+          localStart: event.localStart,
+          localEnd: event.localEnd,
           date: event.localStart.slice(0, 10),
         });
       })

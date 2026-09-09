@@ -30,11 +30,30 @@
 --    where is_birthday and is_master;          -- BEFORE the drop below
 --   alter table public.events drop column is_birthday;
 --
--- The backfill's DELETE below is destructive and not reversible: the orphaned
--- masters it removes are gone. That is intended — they are unreachable rows
--- the sentinel design produced, invisible to `sync_birthday_event` and
--- indistinguishable from a real second birthday to anything else — but on a
--- shared environment take a backup first (docs/BOOTSTRAP.md step 5).
+-- The backfill's DELETE below is destructive and not reversible, so be precise
+-- about what it does and does not remove. Its WHERE clause is
+-- `color_label = '__birthday__'`, so:
+--
+--   REMOVED: duplicate SENTINEL masters — all but the newest per owner. These
+--            are unreachable rows the sentinel design produced.
+--
+--   LEFT IN PLACE: a RECOLOURED master. That is the primary artifact of the
+--            defect this migration fixes — the user recoloured their birthday
+--            event, it stopped matching the sentinel, and sync inserted a
+--            second one. The recoloured row no longer matches the WHERE clause,
+--            so it survives with `is_birthday = false` and becomes an ordinary,
+--            unmanaged event the user still sees.
+--
+-- That is the deliberate choice: it is a row the user customised on purpose,
+-- and deleting someone's event to tidy up our own bug is the worse trade. But
+-- it means THIS MIGRATION DOES NOT LEAVE PROD CLEAN — expect a small number of
+-- stray "Birthday" events, and expect users to delete them by hand. If that is
+-- not acceptable, the cleanup wants its own migration and its own decision,
+-- not a widened WHERE clause here.
+--
+-- On a shared environment take a backup first (docs/BOOTSTRAP.md step 5) —
+-- and note that a `supabase db dump` is NOT a sufficient backup: it omits the
+-- `on_auth_user_created` trigger. See docs/BOOTSTRAP.md § Backup and restore.
 -- ---------------------------------------------------------------------------
 
 alter table public.events add column is_birthday boolean not null default false;

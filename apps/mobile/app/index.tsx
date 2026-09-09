@@ -6,19 +6,22 @@
  *   - CalendarBottomSheet (week strip + 24h time-sheet, swipe-up)
  *   - FAB to open event creation
  *
- * Reads `client.occurrences.range` for the whole visible grid. The window and
- * the colour rule are pure functions in `src/lib/occurrenceWindow`, so both are
- * testable without a renderer.
+ * Data comes from `src/lib/loadOccurrences` — cache first for an instant warm
+ * start, then always a network refresh, which is what makes both "is this
+ * stale?" and "are we offline?" answerable. The window and the colour rule are
+ * pure functions in `src/lib/occurrenceWindow`. All three live outside this
+ * file so they are testable without a renderer; the offline bug that shipped
+ * here was in wiring no test could reach.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { theme } from '@planpal/ui';
-import { PlanPalApiError } from '@planpal/api-client';
 import { currentYearMonth, today } from '@planpal/calendar-core';
 import { MonthView } from '../src/components/calendar/MonthView';
 import { CalendarBottomSheet } from '../src/components/calendar/CalendarBottomSheet';
 import { CalendarState, EDITS_BLOCKED, type CalendarStateKind } from '../src/lib/emptyStates';
+import { loadOccurrences } from '../src/lib/loadOccurrences';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import {
   occurrenceWindow,
@@ -28,19 +31,6 @@ import {
 import { planpalClient } from '../src/lib/planpalClient';
 
 type LoadState = { kind: 'loading' } | { kind: 'ready' } | { kind: CalendarStateKind };
-
-/**
- * Which state an error puts the screen into.
- *
- * A thrown `TypeError` from `fetch` is the offline case — there is no response
- * to read a status off, so it must be told apart by type rather than by code.
- */
-function stateForError(error: unknown): CalendarStateKind {
-  if (error instanceof PlanPalApiError) {
-    return error.status === 401 || error.status === 403 ? 'forbidden' : 'failed';
-  }
-  return 'offline';
-}
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -63,41 +53,28 @@ export default function HomeScreen() {
     let active = true;
     setState({ kind: 'loading' });
 
-    planpalClient.occurrences
-      // `cache-first` is what makes a cold start with no network show the last
-      // known calendar instead of a spinner (T29, AD-10). `rangeDetailed`
-      // rather than `range` because the banner needs `fetchedAt`.
-      .rangeDetailed(window.from, window.to, { policy: 'cache-first' })
-      .then(({ items: occurrences, fetchedAt }) => {
+    void loadOccurrences(
+      planpalClient.occurrences,
+      window,
+      // Early paint from cache, so a warm start renders immediately instead of
+      // showing a spinner until the network answers.
+      (cached) => {
         if (!active) return;
-        setStaleSince(fetchedAt);
-        setOffline(false);
-        setItems(
-          occurrences.map((o) => ({
-            eventId: o.eventId,
-            occurrenceDate: o.occurrenceDate,
-            title: o.title,
-            localStart: o.localStart,
-            localEnd: o.localEnd,
-            timezoneId: o.timezoneId,
-            visibility: o.visibility,
-            colorLabel: o.colorLabel ?? null,
-            isException: o.isException,
-            isVariableSchedule: o.isVariableSchedule,
-          })),
-        );
-        setState({ kind: occurrences.length === 0 ? 'empty' : 'ready' });
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        const kind = stateForError(error);
-        setOffline(kind === 'offline');
-        // Keep whatever is on screen when we go offline: replacing a readable
-        // calendar with an empty one is a worse offline experience than a
-        // slightly stale one, which is the whole point of T29.
-        if (kind !== 'offline') setItems([]);
-        setState({ kind });
-      });
+        setItems(cached.items);
+        setStaleSince(cached.fetchedAt);
+        setState({ kind: cached.items.length === 0 ? 'empty' : 'ready' });
+      },
+    ).then((result) => {
+      if (!active) return;
+      setItems(result.items);
+      setStaleSince(result.fetchedAt);
+      setOffline(result.offline);
+      setState(
+        result.failure !== null
+          ? { kind: result.failure }
+          : { kind: result.items.length === 0 ? 'empty' : 'ready' },
+      );
+    });
 
     return () => {
       // A fast month-swipe leaves several reads in flight; without this the
@@ -185,7 +162,9 @@ export default function HomeScreen() {
         { text: 'Dismiss', style: 'cancel' },
       ]);
     },
-    [reload],
+    // `offline` belongs here: without it the callback captures the value from
+    // the render that created it and the guard above never fires.
+    [reload, offline],
   );
 
   // Offline with something cached is not an error state — it renders the

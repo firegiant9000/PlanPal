@@ -45,19 +45,33 @@ const REPEAT_OPTIONS: { value: RepeatSelection; label: string }[] = [
   { value: 'variable', label: 'Variable schedule' },
 ];
 
+// `shared_select` is disabled rather than removed: the contract supports it,
+// but honouring it needs a `sharedWith` list and there is no friend picker to
+// build one (the friend graph is M6). Offering it would silently create an
+// event shared with nobody, which is worse than not offering it — the same
+// reasoning as the disabled OAuth buttons on the sign-in screens.
 const VISIBILITY_OPTIONS = [
-  { value: 'private', label: 'Private' },
-  { value: 'shared_all', label: 'All friends' },
-  { value: 'shared_select', label: 'Select friends' },
-  { value: 'sensitive_public', label: 'Busy (time only)' },
+  { value: 'private', label: 'Private', disabled: false },
+  { value: 'shared_all', label: 'All friends', disabled: false },
+  { value: 'shared_select', label: 'Select friends (needs the friend list — M6)', disabled: true },
+  { value: 'sensitive_public', label: 'Busy (time only)', disabled: false },
 ];
+
+/** `2026-09-07T09:00:00` -> `09:00`, the value a `type="time"` input wants. */
+function timeOf(localDateTime: string | undefined): string {
+  return localDateTime === undefined ? '' : localDateTime.slice(11, 16);
+}
 
 export function EventForm({ timezoneId, initial, onSubmit, onCancel, submitting }: EventFormProps) {
   const [title, setTitle] = useState(initial?.title ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
-  const [date, setDate] = useState(initial?.date ?? '');
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
+  // Seeded from the initial event, not left blank. `submit` requires both
+  // times, so an edit form that does not seed them refuses to save and says
+  // nothing about why — and forcing a retype invites a typo that silently
+  // reschedules an event the user only meant to rename.
+  const [date, setDate] = useState(initial?.date ?? initial?.localStart?.slice(0, 10) ?? '');
+  const [startTime, setStartTime] = useState(timeOf(initial?.localStart));
+  const [endTime, setEndTime] = useState(timeOf(initial?.localEnd));
   const [repeat, setRepeat] = useState<RepeatSelection>('none');
   const [endRepeat, setEndRepeat] = useState<EndRepeatSelection>('never');
   const [endDate, setEndDate] = useState('');
@@ -207,7 +221,7 @@ export function EventForm({ timezoneId, initial, onSubmit, onCancel, submitting 
           aria-label="Visibility"
         >
           {VISIBILITY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}

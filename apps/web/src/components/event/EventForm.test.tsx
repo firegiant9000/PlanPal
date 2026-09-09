@@ -46,6 +46,39 @@ describe('EventForm', () => {
     expect(onSubmit.mock.calls[0]![0]).toMatchObject({ recurrenceRule: null });
   });
 
+  it('is submittable straight away when editing, without re-entering the times', async () => {
+    // The edit route seeds an existing event. If the times are not seeded with
+    // it the form silently refuses to save — the button does nothing and says
+    // nothing — and a user who retypes them can mistype and reschedule an
+    // event they only meant to rename.
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <EventForm
+        timezoneId="America/New_York"
+        initial={{
+          title: 'Weekly standup',
+          localStart: '2026-09-07T09:00:00',
+          localEnd: '2026-09-07T09:30:00',
+          date: '2026-09-07',
+        }}
+        onSubmit={onSubmit}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText('Start time')).toHaveValue('09:00');
+    expect(screen.getByLabelText('End time')).toHaveValue('09:30');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save event' }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      title: 'Weekly standup',
+      localStart: '2026-09-07T09:00:00',
+      localEnd: '2026-09-07T09:30:00',
+    });
+  });
+
   it('refuses to submit without a title', () => {
     const onSubmit = vi.fn();
     render(<EventForm timezoneId="America/New_York" onSubmit={onSubmit} onCancel={() => {}} />);

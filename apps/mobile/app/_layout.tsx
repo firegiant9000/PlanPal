@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Alert, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { theme } from '@planpal/ui';
@@ -27,7 +27,18 @@ export default function RootLayout() {
     // signed-in user, so registering before sign-in would 401, and registering
     // on every render would re-POST on each token refresh.
     if (!session) return;
-    void registerPushToken();
+    void registerPushToken().then((outcome) => {
+      // Every other outcome is fine to stay quiet about — reminders are
+      // additive. A conflict is not: this token belongs to another account, so
+      // until it is resolved that account keeps receiving this phone's
+      // reminders and this user silently receives none.
+      if (outcome === 'conflict') {
+        Alert.alert(
+          'Reminders are going elsewhere',
+          'This device is still registered to a different PlanPal account. Sign in on that account and sign out, or contact support, or you will not receive reminders here.',
+        );
+      }
+    });
   }, [session]);
 
   useEffect(() => {

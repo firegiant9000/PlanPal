@@ -16,9 +16,14 @@ import { planpalClient } from './planpalClient';
  * device that cannot register should still show a calendar rather than a
  * startup error.
  */
-export async function registerPushToken(): Promise<
-  'registered' | 'denied' | 'unsupported' | 'failed'
-> {
+export type PushRegistration =
+  | 'registered'
+  | 'denied'
+  | 'unsupported'
+  | 'conflict'
+  | 'failed';
+
+export async function registerPushToken(): Promise<PushRegistration> {
   // A simulator has no push transport, and asking anyway throws.
   if (!Device.isDevice) return 'unsupported';
 
@@ -29,12 +34,23 @@ export async function registerPushToken(): Promise<
     if (!granted) return 'denied';
 
     const token = await Notifications.getExpoPushTokenAsync();
-    await planpalClient.devices.register(
-      token.data,
-      Platform.OS === 'ios' ? 'ios' : 'android',
-    );
+    await planpalClient.devices.register(token.data, Platform.OS === 'ios' ? 'ios' : 'android');
     return 'registered';
-  } catch {
+  } catch (error) {
+    // A 409 means this push token is already bound to ANOTHER account — a
+    // phone that changed hands. `devices.register` raises rather than
+    // swallowing it precisely so the caller cannot ignore it: left alone, this
+    // device keeps delivering the previous owner's reminders. It is reported
+    // separately from `failed` so the caller can say something.
+    if (isConflict(error)) return 'conflict';
     return 'failed';
   }
+}
+
+function isConflict(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { status?: unknown }).status === 409
+  );
 }
