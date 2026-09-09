@@ -6,17 +6,6 @@ import { Button } from '../src/components/Button';
 import { Text } from '../src/components/Text';
 import { planpalClient } from '../src/lib/planpalClient';
 
-/**
- * `supabase/config.toml` sets `enable_confirmations = true`, so a successful
- * sign-up returns NO session — and `signUpWithPassword` raises rather than
- * handing back a null the caller has to interpret (see api-client/auth.ts).
- *
- * The consequence for this screen is that the happy path arrives as an
- * exception. Rather than pattern-match the message and risk showing a real
- * failure in a reassuring colour, the check is explicit and narrow.
- */
-const CONFIRMATION_REQUIRED = 'Check your email to confirm the account before signing in.';
-
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,13 +18,14 @@ export default function SignUpScreen() {
     setError(null);
     setNotice(null);
     try {
-      await planpalClient.auth.signUpWithPassword(email.trim(), password);
-      // Confirmations are on, so reaching here means they were turned off.
-      setNotice('Account created. You can sign in now.');
+      const result = await planpalClient.auth.signUpWithPassword(email.trim(), password);
+      setNotice(
+        result.status === 'signed-in'
+          ? 'Account created. You can sign in now.'
+          : 'Account created. Check your email to confirm it before signing in.',
+      );
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not create the account.';
-      if (message === CONFIRMATION_REQUIRED) setNotice(message);
-      else setError(message);
+      setError(e instanceof Error ? e.message : 'Could not create the account.');
     } finally {
       setBusy(false);
     }
