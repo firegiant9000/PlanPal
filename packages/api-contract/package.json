@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "validate": "redocly lint openapi.yaml",
-    "generate": "openapi-typescript openapi.yaml --output ../types/src/generated/openapi.ts",
+    "generate": "pnpm run generate:types && pnpm run generate:edge",
+    "generate:types": "openapi-typescript openapi.yaml --output ../types/src/generated/openapi.ts",
+    "generate:edge": "openapi-typescript openapi.yaml --output ../../supabase/functions/_shared/contract-types.ts",
     "build": "pnpm run generate",
     "lint": "redocly lint openapi.yaml",
     "clean": "rimraf .turbo *.tsbuildinfo"

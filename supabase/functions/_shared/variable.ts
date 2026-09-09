@@ -16,30 +16,33 @@
  * disagree about which dates each owned in the first place.
  */
 import { localToUtc, parseLocal } from './recurrence/index.ts';
+import type { Database } from './database.types.ts';
 
 const DAY_MS = 86_400_000;
 
-/** The subset of an events row this module reads. */
-export interface VariableMasterRow {
-  id: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  local_start: string | null;
-  local_end: string | null;
-  timezone_id: string | null;
-  visibility: string | null;
-  color_label: string | null;
-}
+/**
+ * The subset of an events row this module reads, picked from the generated
+ * row type rather than restated (T32/AD-11). A renamed column fails to
+ * compile at the `Pick` instead of arriving as `undefined` at runtime.
+ */
+export type VariableMasterRow = Pick<
+  Database['public']['Tables']['events']['Row'],
+  | 'id'
+  | 'title'
+  | 'description'
+  | 'location'
+  | 'local_start'
+  | 'local_end'
+  | 'timezone_id'
+  | 'visibility'
+  | 'color_label'
+>;
 
 /** The descriptive fields an exception may override without setting times. */
-export interface VariableExceptionRow {
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  visibility: string | null;
-  color_label: string | null;
-}
+export type VariableExceptionRow = Pick<
+  Database['public']['Tables']['events']['Row'],
+  'title' | 'description' | 'location' | 'visibility' | 'color_label'
+>;
 
 /** The `EventOccurrence` wire shape. */
 export interface OccurrenceModel {

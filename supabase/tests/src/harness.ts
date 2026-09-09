@@ -125,6 +125,11 @@ export interface CallOptions {
   query?: Record<string, string>;
   /** Send a raw string body instead of JSON — used to test malformed input. */
   rawBody?: string;
+  /**
+   * Extra request headers. `notify-scheduler` is gated on `X-Cron-Secret`
+   * rather than on a user JWT, so it cannot be called through `token` alone.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -147,6 +152,7 @@ export async function callFn<T = unknown>(
   if (opts.body !== undefined || opts.rawBody !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
+  Object.assign(headers, opts.headers ?? {});
 
   const res = await fetch(url, {
     method: opts.method ?? 'GET',

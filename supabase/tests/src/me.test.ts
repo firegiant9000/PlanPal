@@ -59,8 +59,12 @@ afterAll(async () => {
 describe('GET /healthz', () => {
   it('is reachable without a user JWT', async () => {
     // security: [] in the contract. Kong still needs the anon key to route.
+    //
+    // `version` joined `status` as a required property of `Health` (E3), so the
+    // shape is matched rather than compared literally — the body's contents are
+    // asserted in healthz.test.ts, which owns this endpoint.
     const res = await callFn('healthz', { token: ANON_KEY });
-    expect(expectOk(res)).toEqual({ status: 'ok' });
+    expect(expectOk(res)).toMatchObject({ status: 'ok' });
   });
 
   it('405s a non-GET verb', async () => {

@@ -15,8 +15,8 @@
  * the Event shape — which cannot represent a sparse exception without emitting
  * null for six required non-nullable fields.
  */
-import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getUserClient } from '../_shared/auth.ts';
+import { getUserClient, type DbClient } from '../_shared/auth.ts';
+import type { Database, Json } from '../_shared/database.types.ts';
 import { readJsonObject } from '../_shared/body.ts';
 import {
   badRequest,
@@ -34,7 +34,7 @@ import {
   UnsupportedRRuleError,
   type EventRow,
 } from '../_shared/recurrence/index.ts';
-import { type EventRowFull, toEventModel, toEventModels } from '../_shared/serialize.ts';
+import { toEventModel, toEventModels } from '../_shared/serialize.ts';
 import {
   isCalendarDate,
   LOCAL_DT_RE,
@@ -44,8 +44,6 @@ import {
 import {
   isVariableWeek,
   variablePlaceholder,
-  type VariableExceptionRow,
-  type VariableMasterRow,
 } from '../_shared/variable.ts';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,7 +97,7 @@ Deno.serve(async (req: Request) => {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function listEvents(client: SupabaseClient, userId: string, url: URL) {
+async function listEvents(client: DbClient, userId: string, url: URL) {
   const rawLimit = Number(url.searchParams.get('limit') ?? '50');
   if (!Number.isInteger(rawLimit) || rawLimit < 1) {
     return badRequest('"limit" must be a positive integer.');
@@ -132,11 +130,10 @@ async function listEvents(client: SupabaseClient, userId: string, url: URL) {
   const page = hasMore ? items.slice(0, limit) : items;
   const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
 
-  // Widening cast per AD-11; removed by T32.
-  return ok({ items: toEventModels(page as unknown as EventRowFull[]), nextCursor });
+  return ok({ items: toEventModels(page), nextCursor });
 }
 
-async function createEvent(client: SupabaseClient, userId: string, req: Request) {
+async function createEvent(client: DbClient, userId: string, req: Request) {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
 
@@ -154,20 +151,22 @@ async function createEvent(client: SupabaseClient, userId: string, req: Request)
     is_master: true,
     recurrence_rule: (body.recurrenceRule as string | null) ?? null,
     is_variable_schedule: (body.isVariableSchedule as boolean | null) ?? false,
-    visibility: body.visibility as string,
+    // Narrowed to the column's enum, which `validateEventWrite` above has
+    // already proved: it rejects anything outside VISIBILITIES. Before the
+    // schema was generated this field was typed `string` and the mismatch was
+    // invisible — an unvalidated write would have reached the database and
+    // failed there instead of here.
+    visibility: body.visibility as Database['public']['Enums']['visibility'],
     color_label: (body.colorLabel as string | null) ?? null,
     shared_with: (body.sharedWith as string[] | null) ?? [],
   };
 
   const { data, error } = await client.from('events').insert(row).select().single();
   if (error) return dbError(error, 'events:create');
-  // Widening cast: supabase-js degrades `.select()` inference to
-  // GenericStringError when the column list is not a literal. Removed by T32
-  // (generated database types) — see AD-11.
-  return ok(toEventModel(data as unknown as EventRowFull), 201);
+  return ok(toEventModel(data), 201);
 }
 
-async function getEvent(client: SupabaseClient, userId: string, eventId: string) {
+async function getEvent(client: DbClient, userId: string, eventId: string) {
   const { data, error } = await client
     .from('events')
     .select('*')
@@ -176,11 +175,10 @@ async function getEvent(client: SupabaseClient, userId: string, eventId: string)
     .maybeSingle();
   if (error) return dbError(error, 'events:get');
   if (!data) return notFound('Event');
-  // Widening cast per AD-11; removed by T32.
-  return ok(toEventModel(data as unknown as EventRowFull));
+  return ok(toEventModel(data));
 }
 
-async function updateEvent(client: SupabaseClient, userId: string, eventId: string, req: Request) {
+async function updateEvent(client: DbClient, userId: string, eventId: string, req: Request) {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
 
@@ -210,18 +208,22 @@ async function updateEvent(client: SupabaseClient, userId: string, eventId: stri
 
   const { data, error } = await client
     .from('events')
-    .update(patch)
+    // Asserted once, here, and only because the patch is assembled key by key
+    // from the `allowed` map above — the keys are ours, and the values have
+    // just been validated. This is a narrowing of a hand-built object, not the
+    // old `as unknown as` on a query *result*: those are now derived from the
+    // generated schema and cannot be asserted into agreement.
+    .update(patch as Database['public']['Tables']['events']['Update'])
     .eq('id', eventId)
     .eq('owner_id', userId)
     .select()
     .maybeSingle();
   if (error) return dbError(error, 'events:update');
   if (!data) return notFound('Event');
-  // Widening cast per AD-11; removed by T32.
-  return ok(toEventModel(data as unknown as EventRowFull));
+  return ok(toEventModel(data));
 }
 
-async function deleteEvent(client: SupabaseClient, userId: string, eventId: string) {
+async function deleteEvent(client: DbClient, userId: string, eventId: string) {
   // `select()` so a delete that matched nothing is reported as 404 rather than
   // a misleading success.
   const { data, error } = await client
@@ -248,7 +250,7 @@ const OVERRIDE_FIELDS: Record<string, string> = {
 };
 
 async function overrideOccurrence(
-  client: SupabaseClient,
+  client: DbClient,
   userId: string,
   eventId: string,
   date: string,
@@ -294,8 +296,18 @@ async function overrideOccurrence(
     .maybeSingle();
   if (existingErr) return dbError(existingErr, 'events:override:existing');
 
-  const candidate: Record<string, unknown> = {
-    ...(existing ?? {}),
+  // `body` is narrowed to an object by the guard above, but a function
+  // declaration does not inherit control-flow narrowing, so bind it first.
+  const requested = body;
+  /** The request's value for an overridable field, or the stored one. */
+  const pick = <T,>(clientKey: string, fallback: T): T =>
+    Object.hasOwn(requested, clientKey) ? (requested[clientKey] as T) : fallback;
+
+  // Built as a typed `EventRow`, field by field, rather than assembled in a
+  // `Record<string, unknown>` and asserted. The dynamic loop this replaces was
+  // only possible because the shape was cast away afterwards; writing the
+  // overridable fields out means a renamed column fails to compile here too.
+  const candidate: EventRow = {
     id: existing?.id ?? '00000000-0000-0000-0000-000000000000',
     owner_id: userId,
     master_event_id: eventId,
@@ -304,24 +316,32 @@ async function overrideOccurrence(
     is_cancelled: false,
     recurrence_rule: null,
     is_variable_schedule: false,
+    timezone_id: pick('timezoneId', existing?.timezone_id ?? null),
+    title: pick('title', existing?.title ?? null),
+    description: pick('description', existing?.description ?? null),
+    location: pick('location', existing?.location ?? null),
+    local_start: pick('localStart', existing?.local_start ?? null),
+    local_end: pick('localEnd', existing?.local_end ?? null),
+    visibility: pick('visibility', existing?.visibility ?? null),
+    color_label: pick('colorLabel', existing?.color_label ?? null),
   };
-  for (const [clientKey, dbKey] of Object.entries(OVERRIDE_FIELDS)) {
-    if (Object.hasOwn(body, clientKey)) candidate[dbKey] = body[clientKey];
-  }
 
-  const masterRecord = mapEventRow(master as unknown as EventRow);
+  const masterRecord = mapEventRow(master);
   const isVariable = master.is_variable_schedule === true;
 
   // A variable master has no rule for the engine to expand, so its valid dates
   // are the weeks /occurrences synthesises placeholders for — one predicate,
   // shared, rather than each route deciding for itself.
-  if (isVariable && !isVariableWeek(master as unknown as VariableMasterRow, date)) {
+  if (isVariable && !isVariableWeek(master, date)) {
     return notFound('Occurrence');
   }
 
   let resolved;
   try {
-    resolved = expandOccurrences([masterRecord, mapEventRow(candidate as unknown as EventRow)], {
+    // `candidate` is assembled above from the existing row plus the patch, so
+    // it is an events row by construction rather than by assertion of a query
+    // result.
+    resolved = expandOccurrences([masterRecord, mapEventRow(candidate)], {
       from: date,
       to: date,
     }).find((o) => o.occurrenceDate === date);
@@ -343,16 +363,28 @@ async function overrideOccurrence(
   // so the merge is evaluated against the live row. Doing it here as
   // read-then-upsert lost concurrent edits ~42% of the time — see
   // 20260904000001.
-  const { data: written, error } = await client
-    .rpc('override_occurrence', { p_master_id: eventId, p_date: date, p_patch: patch })
-    .maybeSingle();
+  // No `.maybeSingle()`: 20260904000001 declares `returns public.events`, a
+  // composite rather than a set, so PostgREST already answers with one object.
+  // Asking for a single row on top of that types `data` as `never` and hides
+  // whatever the row really is — the same inference collapse the concatenated
+  // column lists caused (AD-11). A composite-returning function that resolves
+  // to NULL still yields `null` here, so the `!written` guard below is
+  // unchanged.
+  const { data: written, error } = await client.rpc('override_occurrence', {
+    p_master_id: eventId,
+    p_date: date,
+    // The RPC's parameter is `jsonb`, so the generated signature wants `Json`.
+    // The patch is built from OVERRIDE_FIELDS above and its values came from a
+    // parsed JSON body, so it is Json by construction.
+    p_patch: patch as Json,
+  });
   if (error) return dbError(error, 'events:override');
   if (!written) return notFound('Event');
 
   // Re-resolve from what was actually persisted rather than from the candidate,
   // so the response reflects the merge the database performed — including any
   // field a concurrent PATCH set.
-  const finalRecord = mapEventRow(written as unknown as EventRow);
+  const finalRecord = mapEventRow(written);
   const final = expandOccurrences([masterRecord, finalRecord], { from: date, to: date }).find(
     (o) => o.occurrenceDate === date,
   );
@@ -368,15 +400,15 @@ async function overrideOccurrence(
   // calendar will show, so the client sees the same object either way.
   return ok(
     variablePlaceholder(
-      master as unknown as VariableMasterRow,
+      master,
       date,
-      written as unknown as VariableExceptionRow,
+      written,
     ),
   );
 }
 
 async function cancelOccurrence(
-  client: SupabaseClient,
+  client: DbClient,
   userId: string,
   eventId: string,
   date: string,

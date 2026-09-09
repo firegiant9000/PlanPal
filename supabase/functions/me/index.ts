@@ -10,8 +10,8 @@
  *   POST   /me/devices                    register a push token
  *   DELETE /me/devices/{token}            deregister a push token
  */
-import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getUserClient } from '../_shared/auth.ts';
+import { getUserClient, type DbClient } from '../_shared/auth.ts';
+import type { Database } from '../_shared/database.types.ts';
 import { readJsonObject } from '../_shared/body.ts';
 import {
   badRequest,
@@ -24,9 +24,6 @@ import {
   unauthenticated,
 } from '../_shared/response.ts';
 import {
-  type DeviceRow,
-  type NotificationPreferenceRow,
-  type UserRow,
   toDeviceModel,
   toNotificationPreferenceModel,
   toProfileModel,
@@ -93,17 +90,17 @@ Deno.serve(async (req: Request) => {
 // Profile
 // ---------------------------------------------------------------------------
 
-async function getProfile(client: SupabaseClient, userId: string) {
+async function getProfile(client: DbClient, userId: string) {
   const { data, error } = await client.from('users').select('*').eq('id', userId).maybeSingle();
   if (error) return dbError(error, 'me:get');
   // handle_new_user creates this row at signup. Its absence means the trigger
   // did not run, which is a real fault worth surfacing rather than a 200 with
   // an empty body.
   if (!data) return notFound('Profile');
-  return ok(toProfileModel(data as unknown as UserRow));
+  return ok(toProfileModel(data));
 }
 
-async function patchProfile(client: SupabaseClient, userId: string, req: Request) {
+async function patchProfile(client: DbClient, userId: string, req: Request) {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
 
@@ -133,7 +130,10 @@ async function patchProfile(client: SupabaseClient, userId: string, req: Request
   // ("That record already exists") is useless to a user typing a name.
   const { data, error } = await client
     .from('users')
-    .update(patch)
+    // Asserted once, on a hand-built patch whose keys come from this handler's
+    // own allowlist and whose values have just been validated — not on a query
+    // result, which is now derived from the generated schema (T32/AD-11).
+    .update(patch as Database['public']['Tables']['users']['Update'])
     .eq('id', userId)
     .select()
     .maybeSingle();
@@ -144,7 +144,7 @@ async function patchProfile(client: SupabaseClient, userId: string, req: Request
   }
   if (!data) return notFound('Profile');
 
-  return ok(toProfileModel(data as unknown as UserRow));
+  return ok(toProfileModel(data));
 }
 
 function validateProfilePatch(body: Record<string, unknown>): string | null {
@@ -203,7 +203,7 @@ function validateProfilePatch(body: Record<string, unknown>): string | null {
  * The RPC takes no arguments and reads auth.uid() itself, so this cannot be
  * aimed at another account. See 20260903000004.
  */
-async function deleteAccount(client: SupabaseClient) {
+async function deleteAccount(client: DbClient) {
   const { error } = await client.rpc('delete_me');
   if (error) return dbError(error, 'me:delete');
 
@@ -219,7 +219,7 @@ async function deleteAccount(client: SupabaseClient) {
 
 const PLATFORMS = ['ios', 'android', 'web'];
 
-async function registerDevice(client: SupabaseClient, userId: string, req: Request) {
+async function registerDevice(client: DbClient, userId: string, req: Request) {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
 
@@ -270,10 +270,10 @@ async function registerDevice(client: SupabaseClient, userId: string, req: Reque
 
   if (!data) return conflict('That push token is registered to another account.');
 
-  return ok(toDeviceModel(data as unknown as DeviceRow));
+  return ok(toDeviceModel(data));
 }
 
-async function deregisterDevice(client: SupabaseClient, userId: string, token: string) {
+async function deregisterDevice(client: DbClient, userId: string, token: string) {
   const { error } = await client
     .from('devices')
     .delete()
@@ -292,7 +292,7 @@ async function deregisterDevice(client: SupabaseClient, userId: string, token: s
 // Notification preferences
 // ---------------------------------------------------------------------------
 
-async function getPreferences(client: SupabaseClient, userId: string) {
+async function getPreferences(client: DbClient, userId: string) {
   const { data, error } = await client
     .from('notification_preferences')
     .select('*')
@@ -300,10 +300,10 @@ async function getPreferences(client: SupabaseClient, userId: string) {
     .maybeSingle();
   if (error) return dbError(error, 'me:prefs:get');
   if (!data) return notFound('Notification preferences');
-  return ok(toNotificationPreferenceModel(data as unknown as NotificationPreferenceRow));
+  return ok(toNotificationPreferenceModel(data));
 }
 
-async function putPreferences(client: SupabaseClient, userId: string, req: Request) {
+async function putPreferences(client: DbClient, userId: string, req: Request) {
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
 
@@ -327,7 +327,7 @@ async function putPreferences(client: SupabaseClient, userId: string, req: Reque
     .single();
 
   if (error) return dbError(error, 'me:prefs:put');
-  return ok(toNotificationPreferenceModel(data as unknown as NotificationPreferenceRow));
+  return ok(toNotificationPreferenceModel(data));
 }
 
 function validatePreferences(body: Record<string, unknown>): string | null {

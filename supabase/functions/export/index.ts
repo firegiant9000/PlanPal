@@ -12,8 +12,7 @@
  * from openapi.yaml asking for /export/ical got a gateway 404. Same reasoning
  * as the /me/devices routes living in `me` (see me/index.ts).
  */
-import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getUserClient } from '../_shared/auth.ts';
+import { getUserClient, type DbClient } from '../_shared/auth.ts';
 import {
   corsHeaders,
   dbError,
@@ -49,7 +48,7 @@ Deno.serve(async (req: Request) => {
   return exportIcal(client, userId);
 });
 
-async function exportIcal(client: SupabaseClient, userId: string) {
+async function exportIcal(client: DbClient, userId: string) {
   // Non-private only, per §6. `private` is the default visibility, so this is
   // the difference between exporting a handful of deliberately-shared events
   // and handing over someone's entire calendar to whatever they paste the file
@@ -69,8 +68,7 @@ async function exportIcal(client: SupabaseClient, userId: string) {
 
   if (mastersErr) return dbError(mastersErr, 'export:ical:masters');
 
-  // Widening cast per AD-11; removed by T32.
-  const events = (masters ?? []) as unknown as IcalEventRow[];
+  const events: IcalEventRow[] = masters ?? [];
 
   let exceptions: IcalExceptionRow[] = [];
   if (events.length > 0) {
@@ -85,7 +83,17 @@ async function exportIcal(client: SupabaseClient, userId: string) {
       .eq('owner_id', userId)
       .eq('is_master', false);
     if (error) return dbError(error, 'export:ical:exceptions');
-    exceptions = (data ?? []) as unknown as IcalExceptionRow[];
+    // A runtime filter, not a cast. `master_event_id` and
+    // `recurrence_exception_date` are nullable on the table — a master row has
+    // neither — and this query selects only non-master rows, where both are
+    // always set. Asserting that with `as unknown as` would put `undefined`
+    // into a date calculation if it were ever untrue; dropping the row instead
+    // means a malformed exception costs one missing VEVENT rather than a
+    // corrupt .ics.
+    exceptions = (data ?? []).filter(
+      (row): row is IcalExceptionRow =>
+        row.master_event_id !== null && row.recurrence_exception_date !== null,
+    );
   }
 
   const body = buildIcal(events, exceptions);

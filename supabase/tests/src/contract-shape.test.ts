@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import {
   callFn,
   createTestUser,
@@ -22,37 +25,41 @@ import {
  * `_shared/serialize.ts` is the missing inverse; these tests hold it in place.
  */
 
-/** Required properties of `Event` in openapi.yaml. */
-const EVENT_REQUIRED = [
-  'id',
-  'ownerId',
-  'title',
-  'localStart',
-  'localEnd',
-  'timezoneId',
-  'utcStart',
-  'utcEnd',
-  'isMaster',
-  'visibility',
-  'isVariableSchedule',
-  'createdAt',
-  'updatedAt',
-] as const;
+/**
+ * The `required` list for a schema, read from `openapi.yaml` at run time.
+ *
+ * It used to be two hardcoded arrays here — a copy of the contract that
+ * nothing kept in step. Adding a required property to the spec regenerates
+ * `packages/types`, leaves `contract.yml` green, lets the serializer keep
+ * omitting the field, and no test notices. G2's `isBirthday` walked straight
+ * through that gap: only the birthday spec caught it, and only because someone
+ * happened to write one.
+ *
+ * `SNAKE_CASE_LEAKS` below stays hardcoded on purpose. It is a denylist of
+ * things the spec deliberately does not mention, so it cannot be derived from
+ * the spec.
+ */
+const SPEC_PATH = fileURLToPath(
+  // Resolved from this file, not process.cwd(): Vitest's cwd depends on how it
+  // was invoked, and a wrong path here would throw rather than fail, which
+  // reads as a broken test instead of a contract drift.
+  new URL('../../../packages/api-contract/openapi.yaml', import.meta.url),
+);
 
-/** Required properties of `EventOccurrence` in openapi.yaml. */
-const OCCURRENCE_REQUIRED = [
-  'eventId',
-  'occurrenceDate',
-  'title',
-  'localStart',
-  'localEnd',
-  'timezoneId',
-  'utcStart',
-  'utcEnd',
-  'visibility',
-  'isException',
-  'isVariableSchedule',
-] as const;
+interface OpenApiDocument {
+  components?: { schemas?: Record<string, { required?: string[] } | undefined> };
+}
+
+let specCache: OpenApiDocument | null = null;
+
+function requiredOf(schema: string): string[] {
+  specCache ??= parse(readFileSync(SPEC_PATH, 'utf8')) as OpenApiDocument;
+  const required = specCache.components?.schemas?.[schema]?.required;
+  if (!required || required.length === 0) {
+    throw new Error(`openapi.yaml declares no required properties for ${schema} (${SPEC_PATH})`);
+  }
+  return required;
+}
 
 /** Column names that must never appear on the wire. */
 const SNAKE_CASE_LEAKS = [
@@ -72,10 +79,11 @@ const SNAKE_CASE_LEAKS = [
   'recurrence_rule',
   'recurrence_exception_date',
   'is_cancelled',
+  'is_birthday',
 ] as const;
 
 function assertEventShape(event: Record<string, unknown>, where: string) {
-  for (const key of EVENT_REQUIRED) {
+  for (const key of requiredOf('Event')) {
     expect(event, `${where}: missing required Event property ${key}`).toHaveProperty(key);
   }
   for (const key of SNAKE_CASE_LEAKS) {
@@ -160,7 +168,7 @@ describe('Event responses match the contract', () => {
       }),
     );
 
-    for (const key of OCCURRENCE_REQUIRED) {
+    for (const key of requiredOf('EventOccurrence')) {
       expect(
         overridden,
         `override: missing required EventOccurrence property ${key}`,
@@ -209,5 +217,29 @@ describe('Event responses match the contract', () => {
     expect(String(created.utcStart)).toContain('14:00:00');
     expect(created.createdAt).toEqual(expect.any(String));
     expect(created.updatedAt).toEqual(expect.any(String));
+  });
+});
+
+describe('the required lists come from the contract, not a copy of it', () => {
+  it('reads the required property list from openapi.yaml, not from a copy', () => {
+    const event = requiredOf('Event');
+
+    expect(event.length).toBeGreaterThanOrEqual(13);
+    expect(event).toContain('isVariableSchedule');
+    // `isBirthday` was added to the spec in G2. A hardcoded array written
+    // before that would not contain it, so this is what distinguishes a parsed
+    // list from a stale copy — and it is the property the old arrays let
+    // through undetected.
+    expect(event).toContain('isBirthday');
+
+    const occurrence = requiredOf('EventOccurrence');
+    expect(occurrence.length).toBeGreaterThanOrEqual(11);
+    expect(occurrence).toContain('isVariableSchedule');
+  });
+
+  it('fails loudly rather than vacuously when a schema is missing', () => {
+    // An empty list would make every shape assertion pass by iterating
+    // nothing, which is the exact failure mode this task exists to end.
+    expect(() => requiredOf('NoSuchSchema')).toThrow(/no required properties/);
   });
 });

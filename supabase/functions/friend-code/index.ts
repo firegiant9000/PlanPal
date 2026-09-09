@@ -12,8 +12,7 @@
  * them is worse — it leaves the user with no active code and no route back to
  * one. See 20260903000003.
  */
-import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getUserClient } from '../_shared/auth.ts';
+import { getUserClient, type DbClient } from '../_shared/auth.ts';
 import {
   dbError,
   handleOptions,
@@ -22,7 +21,7 @@ import {
   ok,
   unauthenticated,
 } from '../_shared/response.ts';
-import { type FriendCodeRow, toFriendCodeModel } from '../_shared/serialize.ts';
+import { toFriendCodeModel } from '../_shared/serialize.ts';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -47,7 +46,7 @@ Deno.serve(async (req: Request) => {
   return methodNotAllowed();
 });
 
-async function getActive(client: SupabaseClient, userId: string) {
+async function getActive(client: DbClient, userId: string) {
   const { data, error } = await client
     .from('friend_codes')
     .select('*')
@@ -64,10 +63,10 @@ async function getActive(client: SupabaseClient, userId: string) {
   // rather than an empty state the client should render.
   if (!data) return notFound('Friend code');
 
-  return ok(toFriendCodeModel(data as unknown as FriendCodeRow));
+  return ok(toFriendCodeModel(data));
 }
 
-async function rotate(client: SupabaseClient) {
+async function rotate(client: DbClient) {
   // The RPC reads auth.uid() itself, so there is no user id to pass and no way
   // to aim it at another account.
   const { data, error } = await client.rpc('rotate_friend_code');
@@ -75,5 +74,5 @@ async function rotate(client: SupabaseClient) {
   if (error) return dbError(error, 'friend-code:rotate');
   if (!data) return dbError(null, 'friend-code:rotate:empty');
 
-  return ok(toFriendCodeModel(data as unknown as FriendCodeRow));
+  return ok(toFriendCodeModel(data));
 }

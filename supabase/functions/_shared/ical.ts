@@ -11,33 +11,62 @@
  * each override. Non-private events only. Standards hardening is M9.
  */
 
-export interface IcalEventRow {
-  id: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  local_start: string | null;
-  local_end: string | null;
-  timezone_id: string | null;
-  recurrence_rule: string | null;
-  visibility: string | null;
-  created_at: string;
-  updated_at: string;
-}
+import type { Database } from './database.types.ts';
 
-export interface IcalExceptionRow {
+type EventsRow = Database['public']['Tables']['events']['Row'];
+
+/**
+ * Derived from the generated row type with `Pick`, not hand-written.
+ *
+ * `Pick` rather than the whole `Row` on purpose: the handler selects a column
+ * subset (`MASTER_COLUMNS`), so the whole row would not be assignable and the
+ * mismatch would have to be cast away again. Picking keeps the narrowness and
+ * still fails to compile if a migration renames one of these columns (AD-11).
+ */
+export type IcalEventRow = Pick<
+  EventsRow,
+  | 'id'
+  | 'title'
+  | 'description'
+  | 'location'
+  | 'local_start'
+  | 'local_end'
+  | 'timezone_id'
+  | 'recurrence_rule'
+  | 'visibility'
+  | 'created_at'
+  | 'updated_at'
+>;
+
+/** The exception columns as the schema declares them, before narrowing. */
+export type IcalExceptionColumns = Pick<
+  EventsRow,
+  | 'master_event_id'
+  | 'recurrence_exception_date'
+  | 'is_cancelled'
+  | 'title'
+  | 'description'
+  | 'location'
+  | 'local_start'
+  | 'local_end'
+  | 'timezone_id'
+  | 'visibility'
+>;
+
+/**
+ * An exception row this serialiser can actually use.
+ *
+ * `master_event_id` and `recurrence_exception_date` are nullable on the table —
+ * a master row has neither — but they are non-null on every non-master row,
+ * which is the only kind this reads. The narrowing is done by a runtime
+ * predicate in the handler rather than by asserting it here, so a row that
+ * somehow lacks either is dropped instead of producing `undefined` inside a
+ * date calculation.
+ */
+export type IcalExceptionRow = IcalExceptionColumns & {
   master_event_id: string;
   recurrence_exception_date: string;
-  is_cancelled: boolean;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  local_start: string | null;
-  local_end: string | null;
-  timezone_id: string | null;
-  /** null = inherit the master's visibility. `private` is never exported. */
-  visibility: string | null;
-}
+};
 
 /** RFC 5545 §3.3.11 — escape TEXT values. Colons are NOT escaped. */
 export function escapeText(value: string): string {

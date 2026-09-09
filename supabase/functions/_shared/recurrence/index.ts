@@ -13,6 +13,12 @@
  */
 export { expandOccurrences } from './expand.ts';
 export { parseRRule, occurrenceDates, type ParsedRule } from './rrule.ts';
+export {
+  buildRRule,
+  type RRuleSelection,
+  type RepeatSelection,
+  type EndRepeatSelection,
+} from './rrule.ts';
 export { localToUtc, parseLocal, formatLocal, type Civil } from './timezone.ts';
 export { mapEventRow, type EventRow } from './row.ts';
 export {

@@ -9,7 +9,7 @@
  * static 200. A function that answers "ok" while its database is unreachable
  * is worse than no probe at all: it turns an outage into a silent one.
  */
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.116.0';
 import { err, handleOptions, methodNotAllowed, ok } from '../_shared/response.ts';
 
 // Built once per isolate, not per request. This is the most frequently hit
@@ -22,6 +22,13 @@ const client: SupabaseClient | null =
   SUPABASE_URL && ANON_KEY
     ? createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } })
     : null;
+
+// Read once per isolate, beside the client, for the same reason: this endpoint
+// is polled forever. `?? 'unknown'` rather than a hard failure — an unset
+// secret should degrade the answer, not take the probe down. The deploy's smoke
+// check asserts the value equals the commit it deployed, so 'unknown' fails
+// there, which is the right place to notice.
+const VERSION = Deno.env.get('PLANPAL_VERSION') ?? 'unknown';
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -44,11 +51,11 @@ Deno.serve(async (req: Request) => {
     return unhealthy('database');
   }
 
-  // Only `status` is returned. §6 also describes a version string, but `Health`
-  // in openapi.yaml defines `status` alone, and adding an undeclared field is
-  // exactly the drift that let `isVariableSchedule` diverge. Adding `version`
-  // is a contract change and belongs with one.
-  return ok({ status: 'ok' });
+  // `version` is declared in `Health` and required there (the contract change
+  // landed with this handler, decision E3), so emitting it is no longer the
+  // undeclared-field drift that let `isVariableSchedule` diverge — omitting it
+  // would now be the drift.
+  return ok({ status: 'ok', version: VERSION });
 });
 
 /**

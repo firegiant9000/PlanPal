@@ -103,12 +103,14 @@ Deno.serve(async (req: Request) => {
   if (mastersRes.error) return dbError(mastersRes.error, 'occurrences:masters');
   if (exceptionsRes.error) return dbError(exceptionsRes.error, 'occurrences:exceptions');
 
-  // `as unknown as` is required, not laziness: supabase-js parses the select
-  // string at the type level, and a runtime-built column list (EVENT_COLUMNS)
-  // degrades its inference to `GenericStringError[]`. The real fix is generated
-  // database types (`supabase gen types typescript`), which is an M3 task.
-  const masters = (mastersRes.data ?? []) as unknown as EventRow[];
-  const exceptions = (exceptionsRes.data ?? []) as unknown as EventRow[];
+  // No cast. This comment used to say `as unknown as` was "required, not
+  // laziness" — true then, false now. Both halves that made it true have
+  // landed: EVENT_COLUMNS is a single literal (C1), so supabase-js can infer
+  // the row from the select string, and the schema is generated (T32), so the
+  // inferred row is the real one. A cast here would go back to asserting the
+  // shape instead of deriving it.
+  const masters = mastersRes.data ?? [];
+  const exceptions = exceptionsRes.data ?? [];
   const records = [...masters, ...exceptions].map(mapEventRow);
 
   let items: OccurrenceResponseItem[];
@@ -137,11 +139,18 @@ Deno.serve(async (req: Request) => {
   return ok({ items });
 });
 
-/** Exactly the columns `mapEventRow` reads, plus `utc_start` for range-bounding. */
-const EVENT_COLUMNS =
-  'id,owner_id,title,description,location,local_start,local_end,timezone_id,' +
-  'is_master,master_event_id,recurrence_exception_date,recurrence_rule,' +
-  'is_cancelled,is_variable_schedule,visibility,color_label,utc_start';
+/**
+ * Exactly the columns `mapEventRow` reads, plus `utc_start` for range-bounding.
+ *
+ * ONE single-quoted literal, deliberately. `supabase-js` parses the `.select()`
+ * string at the type level, and TypeScript widens `'a' + 'b'` to `string` —
+ * which degrades the row inference to `GenericStringError` and makes
+ * `Property 'title' does not exist` the only thing the checker can say. Kept
+ * literal, a misspelled column is a compile error instead (AD-11). Do not
+ * break this line with `+`; let it exceed the line width.
+ */
+// deno-fmt-ignore
+const EVENT_COLUMNS = 'id,owner_id,title,description,location,local_start,local_end,timezone_id,is_master,master_event_id,recurrence_exception_date,recurrence_rule,is_cancelled,is_variable_schedule,visibility,color_label,utc_start';
 
 /**
  * One placeholder per week of the window for each variable-schedule master,

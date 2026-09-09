@@ -21,76 +21,109 @@
  * destination — merging them would drag API concerns into the engine mirror.
  */
 
-/** A full `public.events` row, as returned by `.select()`. */
-export interface EventRowFull {
-  id: string;
-  owner_id: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  local_start: string | null;
-  local_end: string | null;
-  timezone_id: string | null;
-  utc_start: string | null;
-  utc_end: string | null;
-  is_master: boolean;
-  master_event_id: string | null;
-  recurrence_rule: string | null;
-  recurrence_exception_date: string | null;
-  is_cancelled: boolean;
-  is_variable_schedule: boolean;
-  visibility: string | null;
-  shared_with: string[] | null;
-  color_label: string | null;
-  created_at: string;
-  updated_at: string;
+import type { Database } from './database.types.ts';
+import type { components } from './contract-types.ts';
+
+type Tables = Database['public']['Tables'];
+
+/**
+ * The wire shapes, generated from `packages/api-contract/openapi.yaml`.
+ *
+ * C2 generated the ROW half of this file from the live schema; this is the
+ * WIRE half. Between them there were three copies of `Event` in the Edge
+ * Functions and a fourth in the spec, all hand-maintained. Now a required
+ * property added to the contract fails `deno check` here, before any test
+ * runs — `toEventModel` simply stops satisfying its return type.
+ *
+ * Aliased locally rather than written out at each use: `components['schemas']
+ * ['Event']` is unreadable in a signature, and Deno resolves the lookup fine.
+ */
+type Schemas = components['schemas'];
+
+/**
+ * CONTRACT/SCHEMA MISMATCH — surfaced by generating both halves, recorded here.
+ *
+ * `openapi.yaml` declares seven `Event` properties **required and
+ * non-nullable** — `title`, `localStart`, `localEnd`, `timezoneId`,
+ * `utcStart`, `utcEnd`, `visibility` — while the matching `public.events`
+ * columns all permit NULL. `Profile.birthday` and `Device.platform` disagree
+ * the same way (optional-not-nullable, and an enum against unconstrained
+ * `text`).
+ *
+ * Neither hand-written copy of the shape could show this: they restated the
+ * contract's nullability by hand and so agreed with it by construction. That
+ * is the drift F2b exists to end.
+ *
+ * Why it has not bitten: every row that reaches `toEventModel` is a master or
+ * standalone event, and the write path validates all seven. The database does
+ * not enforce that, and `GET /events/{id}` does not filter `is_master` — so an
+ * exception row's id would serialise nulls through non-nullable fields, which
+ * is exactly the defect class §11 describes for the override route.
+ *
+ * Resolving it properly is a `NOT NULL` migration or a contract change, and a
+ * contract change is a two-dev decision (§15). Until then this fails **loudly**
+ * rather than emitting a null the generated client type says cannot exist.
+ */
+function required<T>(value: T | null, field: string, id: string): T {
+  if (value === null) {
+    throw new Error(
+      `events.${field} is NULL on row ${id}, but Event.${field} is required by ` +
+        `the contract. A row that cannot be described by the contract reached ` +
+        `the serializer — see the mismatch note in _shared/serialize.ts.`,
+    );
+  }
+  return value;
 }
 
-/** The `Event` shape defined by openapi.yaml. */
-export interface EventModel {
-  id: string;
-  ownerId: string;
-  title: string | null;
-  description: string | null;
-  location: string | null;
-  localStart: string | null;
-  localEnd: string | null;
-  timezoneId: string | null;
-  utcStart: string | null;
-  utcEnd: string | null;
-  isMaster: boolean;
-  masterEventId: string | null;
-  recurrenceRule: string | null;
-  recurrenceExceptionDate: string | null;
-  isCancelled: boolean;
-  isVariableSchedule: boolean;
-  visibility: string | null;
-  sharedWith: string[];
-  colorLabel: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * A full `public.events` row, as returned by `.select()`.
+ *
+ * Generated from the live schema (`supabase gen types typescript --local`,
+ * T32/AD-11), not hand-written. The hand-written version was a copy of the
+ * schema that nothing checked: a column renamed in a migration left it stale
+ * and every call site kept compiling, because the 22 `as unknown as` casts
+ * that fed it asserted the shape rather than deriving it.
+ *
+ * Note that AD-11's promise — "a column renamed in a migration becomes a
+ * compile error" — only holds because the column lists are single literals
+ * (C1). With a concatenated select string supabase-js infers
+ * `GenericStringError` and the generated types buy nothing.
+ */
+export type EventRowFull = Tables['events']['Row'];
+
+/** The `Event` shape defined by openapi.yaml — generated, not restated. */
+export type EventModel = Schemas['Event'];
 
 /** Map one `public.events` row to the contract's `Event`. */
 export function toEventModel(row: EventRowFull): EventModel {
   return {
     id: row.id,
     ownerId: row.owner_id,
-    title: row.title,
+    title: required(row.title, 'title', row.id),
     description: row.description,
     location: row.location,
-    localStart: row.local_start,
-    localEnd: row.local_end,
-    timezoneId: row.timezone_id,
-    utcStart: row.utc_start,
-    utcEnd: row.utc_end,
+    localStart: required(row.local_start, 'local_start', row.id),
+    localEnd: required(row.local_end, 'local_end', row.id),
+    timezoneId: required(row.timezone_id, 'timezone_id', row.id),
+    utcStart: required(row.utc_start, 'utc_start', row.id),
+    utcEnd: required(row.utc_end, 'utc_end', row.id),
     isMaster: row.is_master,
-    masterEventId: row.master_event_id,
     recurrenceRule: row.recurrence_rule,
-    recurrenceExceptionDate: row.recurrence_exception_date,
-    isCancelled: row.is_cancelled,
+    // `masterEventId`, `recurrenceExceptionDate` and `isCancelled` are NOT
+    // emitted. They were, and none of the three is declared in `Event` — the
+    // generated wire type is what surfaced that. All three are exception-row
+    // fields, so on the masters and standalone events this serialiser sees
+    // they are always null/false; emitting them was undeclared drift of the
+    // same kind `DeviceModel` refuses for `user_id`. If a client turns out to
+    // need them, the fix is to add them to `openapi.yaml` (a two-dev contract
+    // change, §15), not to re-add them here.
     isVariableSchedule: row.is_variable_schedule,
-    visibility: row.visibility,
+    // Arrives typed with no edit to the row interface at all: `EventRowFull`
+    // is an alias of the generated `events` Row, so the column G1 added showed
+    // up here as soon as the types were regenerated. That is the whole point
+    // of landing G2 after C2.
+    isBirthday: row.is_birthday,
+    visibility: required(row.visibility, 'visibility', row.id),
     // The column is NOT NULL DEFAULT '{}', but coalesce anyway: the contract
     // says this array is always present, and a null here would be a silent
     // shape violation rather than a loud one.
@@ -110,33 +143,10 @@ export function toEventModels(rows: EventRowFull[]): EventModel[] {
 // Profile
 // ---------------------------------------------------------------------------
 
-export interface UserRow {
-  id: string;
-  username: string;
-  display_name: string;
-  avatar_url: string | null;
-  birthday: string | null;
-  default_visibility: string;
-  timezone_id: string;
-  last_active_opt_in: boolean;
-  last_active_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type UserRow = Tables['users']['Row'];
 
-/** The `Profile` shape defined by openapi.yaml. */
-export interface ProfileModel {
-  id: string;
-  username: string;
-  displayName: string;
-  avatarUrl: string | null;
-  birthday: string | null;
-  defaultVisibility: string;
-  timezoneId: string;
-  lastActiveOptIn: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+/** The `Profile` shape defined by openapi.yaml — generated, not restated. */
+export type ProfileModel = Schemas['Profile'];
 
 export function toProfileModel(row: UserRow): ProfileModel {
   return {
@@ -144,7 +154,10 @@ export function toProfileModel(row: UserRow): ProfileModel {
     username: row.username,
     displayName: row.display_name,
     avatarUrl: row.avatar_url,
-    birthday: row.birthday,
+    // The contract marks `birthday` optional but NOT nullable, while the
+    // column is nullable. Absent and null mean the same thing to a client,
+    // so map null to omitted rather than inventing a value.
+    ...(row.birthday === null ? {} : { birthday: row.birthday }),
     defaultVisibility: row.default_visibility,
     timezoneId: row.timezone_id,
     lastActiveOptIn: row.last_active_opt_in,
@@ -159,13 +172,7 @@ export function toProfileModel(row: UserRow): ProfileModel {
 // Friend codes
 // ---------------------------------------------------------------------------
 
-export interface FriendCodeRow {
-  id: string;
-  user_id: string;
-  code: string;
-  expires_at: string | null;
-  created_at: string;
-}
+export type FriendCodeRow = Tables['friend_codes']['Row'];
 
 /**
  * The `FriendCode` shape defined by openapi.yaml — three properties.
@@ -174,11 +181,7 @@ export interface FriendCodeRow {
  * of no use to a client that can only ever address its own code, and the owner
  * is the caller by construction on this route.
  */
-export interface FriendCodeModel {
-  code: string;
-  expiresAt: string | null;
-  createdAt: string;
-}
+export type FriendCodeModel = Schemas['FriendCode'];
 
 export function toFriendCodeModel(row: FriendCodeRow): FriendCodeModel {
   return {
@@ -193,23 +196,10 @@ export function toFriendCodeModel(row: FriendCodeRow): FriendCodeModel {
 // Notification preferences
 // ---------------------------------------------------------------------------
 
-export interface NotificationPreferenceRow {
-  user_id: string;
-  lead_times_minutes: number[];
-  push_enabled: boolean;
-  quiet_hours_start: string | null;
-  quiet_hours_end: string | null;
-  updated_at: string;
-}
+export type NotificationPreferenceRow = Tables['notification_preferences']['Row'];
 
-export interface NotificationPreferenceModel {
-  userId: string;
-  leadTimesMinutes: number[];
-  pushEnabled: boolean;
-  quietHoursStart: string | null;
-  quietHoursEnd: string | null;
-  updatedAt: string;
-}
+/** The `NotificationPreference` shape defined by openapi.yaml. */
+export type NotificationPreferenceModel = Schemas['NotificationPreference'];
 
 /**
  * Postgres `time` renders as `HH:MM:SS`, but the contract's quiet-hours pattern
@@ -226,13 +216,7 @@ function toHhMm(value: string | null): string | null {
 // Devices
 // ---------------------------------------------------------------------------
 
-export interface DeviceRow {
-  expo_push_token: string;
-  user_id: string;
-  platform: string;
-  last_seen_at: string;
-  created_at: string;
-}
+export type DeviceRow = Tables['devices']['Row'];
 
 /**
  * The `Device` shape defined by openapi.yaml — exactly three properties.
@@ -243,16 +227,15 @@ export interface DeviceRow {
  * free to change without any gate noticing. `userId` is also redundant on a
  * `/me/*` route, where the owner is the caller by construction.
  */
-export interface DeviceModel {
-  expoPushToken: string;
-  platform: string;
-  lastSeenAt: string;
-}
+export type DeviceModel = Schemas['Device'];
 
 export function toDeviceModel(row: DeviceRow): DeviceModel {
   return {
     expoPushToken: row.expo_push_token,
-    platform: row.platform,
+    // `devices.platform` is unconstrained `text` in the schema while the
+    // contract declares an enum. The write path validates it; the database
+    // does not. Same mismatch class as the Event fields above.
+    platform: row.platform as DeviceModel['platform'],
     lastSeenAt: row.last_seen_at,
   };
 }
