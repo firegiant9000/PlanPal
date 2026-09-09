@@ -9,20 +9,35 @@
 -- password "password123".
 
 -- 1. Auth users (the trigger fans out into public.users / prefs / friend_codes) --
+--
+-- confirmation_token, recovery_token, email_change_token_new and email_change
+-- are set to '' deliberately. They are the only string columns on auth.users
+-- with no database default, so a direct insert leaves them NULL — and GoTrue
+-- scans them into non-nullable Go strings, so every sign-in as these accounts
+-- failed with 500 "Database error querying schema":
+--
+--   Scan error on column index 3, name "confirmation_token":
+--   converting NULL to string is unsupported
+--
+-- The integration suite never caught it because harness.ts creates its users
+-- through the admin API instead of inserting rows.
 insert into auth.users
   (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-   created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+   created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+   confirmation_token, recovery_token, email_change_token_new, email_change)
 values
   ('00000000-0000-0000-0000-000000000000',
    '11111111-1111-1111-1111-111111111111', 'authenticated', 'authenticated',
    'alice@example.com', crypt('password123', gen_salt('bf')), now(),
    now(), now(), '{"provider":"email","providers":["email"]}',
-   '{"display_name":"Alice Example","timezone_id":"America/New_York"}'),
+   '{"display_name":"Alice Example","timezone_id":"America/New_York"}',
+   '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000',
    '22222222-2222-2222-2222-222222222222', 'authenticated', 'authenticated',
    'scott@example.com', crypt('password123', gen_salt('bf')), now(),
    now(), now(), '{"provider":"email","providers":["email"]}',
-   '{"display_name":"Scott Example","timezone_id":"America/Los_Angeles"}')
+   '{"display_name":"Scott Example","timezone_id":"America/Los_Angeles"}',
+   '', '', '', '')
 on conflict (id) do nothing;
 
 -- 2. Friendly usernames on top of the trigger-generated defaults ----------------

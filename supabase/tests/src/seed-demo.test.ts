@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { query } from './db';
+import { ANON_KEY, SUPABASE_URL } from './harness';
 
 /**
  * The demo seed's whole job is that a visitor lands on a populated calendar.
@@ -30,6 +31,25 @@ describe('seed.demo.sql', () => {
     // `.not.toBeNull()` happily accepts. Without this, a missing account passes.
     expect(rows).toHaveLength(1);
     expect(rows[0]?.email_confirmed_at).not.toBeNull();
+  });
+
+  it('lets the published demo credentials actually sign in', async () => {
+    // The row assertions above all pass against an account GoTrue cannot
+    // authenticate. Inserting into auth.users directly leaves
+    // confirmation_token, recovery_token, email_change_token_new and
+    // email_change NULL — they are the four string columns with no default —
+    // and GoTrue scans them into non-nullable Go strings, so every sign-in
+    // fails with 500 "Database error querying schema". The demo button calls
+    // this exact endpoint, so this is the assertion that matches the feature.
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'demo@planpal.app', password: 'planpal-demo' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { access_token?: string };
+    expect(body.access_token).toBeTruthy();
   });
 
   it('keeps a recurring master with both an override and a cancellation', async () => {

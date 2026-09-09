@@ -22,15 +22,29 @@ delete from auth.users where id = '33333333-3333-3333-3333-333333333333';
 -- 1. The demo account. email_confirmed_at is set at insert so no confirmation
 --    email is needed — hosted SMTP on the free tier could not deliver one
 --    reliably anyway (specs §2.6).
+--
+--    confirmation_token, recovery_token, email_change_token_new and
+--    email_change are set to '' deliberately. They are the only string columns
+--    on auth.users with no database default, so a direct insert leaves them
+--    NULL — and GoTrue scans them into non-nullable Go strings, failing every
+--    sign-in with 500 "Database error querying schema":
+--
+--      Scan error on column index 3, name "confirmation_token":
+--      converting NULL to string is unsupported
+--
+--    Row-level assertions cannot see this; only an actual token request can,
+--    which is what supabase/tests/src/seed-demo.test.ts now does.
 insert into auth.users
   (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-   created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+   created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+   confirmation_token, recovery_token, email_change_token_new, email_change)
 values
   ('00000000-0000-0000-0000-000000000000',
    '33333333-3333-3333-3333-333333333333', 'authenticated', 'authenticated',
    'demo@planpal.app', crypt('planpal-demo', gen_salt('bf')), now(),
    now(), now(), '{"provider":"email","providers":["email"]}',
-   '{"display_name":"Demo User","timezone_id":"America/New_York"}');
+   '{"display_name":"Demo User","timezone_id":"America/New_York"}',
+   '', '', '', '');
 
 -- The on_auth_user_created trigger has now created the profile, notification
 -- preferences and an initial friend code. Only the username needs a nicer value.
@@ -41,13 +55,15 @@ update public.users
 -- 2. A friend, so the sharing layer is visible rather than theoretical.
 insert into auth.users
   (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-   created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+   created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+   confirmation_token, recovery_token, email_change_token_new, email_change)
 values
   ('00000000-0000-0000-0000-000000000000',
    '44444444-4444-4444-4444-444444444444', 'authenticated', 'authenticated',
    'demo-friend@planpal.app', crypt('planpal-demo', gen_salt('bf')), now(),
    now(), now(), '{"provider":"email","providers":["email"]}',
-   '{"display_name":"Sam Rivera","timezone_id":"America/Los_Angeles"}')
+   '{"display_name":"Sam Rivera","timezone_id":"America/Los_Angeles"}',
+   '', '', '', '')
 on conflict (id) do nothing;
 
 update public.users set username = 'sam'
