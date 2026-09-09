@@ -1,16 +1,27 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { theme } from '@planpal/ui';
-import { Button } from '../components/Button';
 import { Text } from '../components/Text';
-import { getAnalytics } from '../lib/observability';
+import { useSession } from '../lib/useSession';
 
 /**
- * Phase 3 scaffold home screen. Proves the web app builds, consumes the shared
- * design tokens, and renders the @planpal/ui contracts (Button/Text) — the real
- * calendar UI lands in M3.
+ * The root route is now a router, not a screen.
+ *
+ * A signed-in user goes to `/calendar` (T20); a signed-out one is already being
+ * sent to `/sign-in` by `AuthGuard`, so this renders only during the moment
+ * between the session resolving and the redirect landing.
  */
 export default function HomePage() {
+  const router = useRouter();
+  const { session, loading } = useSession();
+
+  useEffect(() => {
+    if (loading) return;
+    if (session) router.replace('/calendar');
+  }, [loading, session, router]);
+
   return (
     <main
       style={{
@@ -24,13 +35,7 @@ export default function HomePage() {
       <Text size="lg" weight="bold">
         PlanPal
       </Text>
-      <Text color="textSecondary">Web scaffold — design tokens wired, contracts rendered.</Text>
-      <Button
-        label="Create event"
-        onPress={() =>
-          getAnalytics().track('event_created', { source: 'manual', is_recurring: false })
-        }
-      />
+      <Text color="textSecondary">Opening your calendar…</Text>
     </main>
   );
 }

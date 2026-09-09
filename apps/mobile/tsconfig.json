@@ -7,8 +7,8 @@
     "declaration": false,
     "declarationMap": false,
     "moduleResolution": "Bundler",
-    "types": ["react", "expo-router"]
+    "types": ["react", "expo-router", "jest"]
   },
-  "include": ["app/**/*", "src/**/*", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "include": ["app/**/*", "src/**/*", ".expo/types/**/*.ts", "expo-env.d.ts", "deps.test.ts"],
   "exclude": ["node_modules", ".expo"]
 }

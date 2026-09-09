@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { initObservability } from '../lib/observability';
+import { AuthGuard } from '../components/AuthGuard';
 
 /** Client-side bootstrap: initializes Sentry + PostHog once on mount. */
 export function Providers({ children }: { children: ReactNode }) {
@@ -9,5 +10,5 @@ export function Providers({ children }: { children: ReactNode }) {
     initObservability();
   }, []);
 
-  return <>{children}</>;
+  return <AuthGuard>{children}</AuthGuard>;
 }

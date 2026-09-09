@@ -1,3 +1,7 @@
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'
+  # Integration suite for the Edge Functions. Deliberately NOT a `test` script,
+  # so `turbo run test` does not try to run it without a local stack — see
+  # `pnpm test:integration` and the `integration` CI job.
+  - 'supabase/tests'

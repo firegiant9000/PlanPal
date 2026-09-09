@@ -7,11 +7,17 @@
  *   GET    /events/:id                         get one event
  *   PATCH  /events/:id                         update master (ALL scope)
  *   DELETE /events/:id                         delete master + all exceptions
- *   PUT    /events/:id/occurrences/:date       THIS-override an occurrence
+ *   PATCH  /events/:id/occurrences/:date       THIS-override an occurrence
  *   DELETE /events/:id/occurrences/:date       THIS-cancel an occurrence
+ *
+ * The override route is PATCH returning EventOccurrenceResult, per the
+ * contract. It previously answered PUT and returned the raw exception row in
+ * the Event shape — which cannot represent a sparse exception without emitting
+ * null for six required non-nullable fields.
  */
-import { type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getUserClient } from '../_shared/auth.ts';
+import { getUserClient, type DbClient } from '../_shared/auth.ts';
+import type { Database, Json } from '../_shared/database.types.ts';
+import { readJsonObject } from '../_shared/body.ts';
 import {
   badRequest,
   dbError,
@@ -21,12 +27,26 @@ import {
   ok,
   unauthenticated,
 } from '../_shared/response.ts';
-import { parseRRule, UnsupportedRRuleError } from '../_shared/recurrence/index.ts';
+import {
+  expandOccurrences,
+  mapEventRow,
+  parseRRule,
+  UnsupportedRRuleError,
+  type EventRow,
+} from '../_shared/recurrence/index.ts';
+import { toEventModel, toEventModels } from '../_shared/serialize.ts';
+import {
+  isCalendarDate,
+  LOCAL_DT_RE,
+  validateTimezone,
+  VISIBILITIES,
+} from '../_shared/validate.ts';
+import {
+  isVariableWeek,
+  variablePlaceholder,
+} from '../_shared/variable.ts';
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const VISIBILITIES = ['private', 'shared_all', 'shared_select', 'sensitive_public'];
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -53,9 +73,15 @@ Deno.serve(async (req: Request) => {
   if (!UUID_RE.test(eventId)) return notFound('Event');
 
   // --- Occurrence sub-resource ---
-  if (isOccurrencePath && occurrenceDate) {
-    if (!DATE_RE.test(occurrenceDate)) return badRequest('Occurrence date must be YYYY-MM-DD.');
-    if (req.method === 'PUT') return upsertOccurrenceOverride(client, userId, eventId, occurrenceDate, req);
+  // Never fall through: `/events/:id/occurrences` with a missing or malformed
+  // date previously dropped into the single-event branch, where a DELETE that
+  // meant "cancel one day" deleted the entire master and its exceptions.
+  if (isOccurrencePath) {
+    if (!occurrenceDate || !isCalendarDate(occurrenceDate)) {
+      return badRequest('Occurrence date must be a real calendar date (YYYY-MM-DD).');
+    }
+    if (req.method === 'PATCH')
+      return overrideOccurrence(client, userId, eventId, occurrenceDate, req);
     if (req.method === 'DELETE') return cancelOccurrence(client, userId, eventId, occurrenceDate);
     return methodNotAllowed();
   }
@@ -71,7 +97,7 @@ Deno.serve(async (req: Request) => {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function listEvents(client: SupabaseClient, userId: string, url: URL) {
+async function listEvents(client: DbClient, userId: string, url: URL) {
   const rawLimit = Number(url.searchParams.get('limit') ?? '50');
   if (!Number.isInteger(rawLimit) || rawLimit < 1) {
     return badRequest('"limit" must be a positive integer.');
@@ -104,12 +130,12 @@ async function listEvents(client: SupabaseClient, userId: string, url: URL) {
   const page = hasMore ? items.slice(0, limit) : items;
   const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null;
 
-  return ok({ items: page, nextCursor });
+  return ok({ items: toEventModels(page), nextCursor });
 }
 
-async function createEvent(client: SupabaseClient, userId: string, req: Request) {
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+async function createEvent(client: DbClient, userId: string, req: Request) {
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const validation = validateEventWrite(body);
   if (validation) return badRequest(validation);
@@ -125,32 +151,36 @@ async function createEvent(client: SupabaseClient, userId: string, req: Request)
     is_master: true,
     recurrence_rule: (body.recurrenceRule as string | null) ?? null,
     is_variable_schedule: (body.isVariableSchedule as boolean | null) ?? false,
-    visibility: body.visibility as string,
+    // Narrowed to the column's enum, which `validateEventWrite` above has
+    // already proved: it rejects anything outside VISIBILITIES. Before the
+    // schema was generated this field was typed `string` and the mismatch was
+    // invisible — an unvalidated write would have reached the database and
+    // failed there instead of here.
+    visibility: body.visibility as Database['public']['Enums']['visibility'],
     color_label: (body.colorLabel as string | null) ?? null,
     shared_with: (body.sharedWith as string[] | null) ?? [],
   };
 
   const { data, error } = await client.from('events').insert(row).select().single();
   if (error) return dbError(error, 'events:create');
-  return ok(data, 201);
+  return ok(toEventModel(data), 201);
 }
 
-async function getEvent(client: SupabaseClient, userId: string, eventId: string) {
+async function getEvent(client: DbClient, userId: string, eventId: string) {
   const { data, error } = await client
-    .from('events').select('*').eq('id', eventId).eq('owner_id', userId).maybeSingle();
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .maybeSingle();
   if (error) return dbError(error, 'events:get');
   if (!data) return notFound('Event');
-  return ok(data);
+  return ok(toEventModel(data));
 }
 
-async function updateEvent(
-  client: SupabaseClient,
-  userId: string,
-  eventId: string,
-  req: Request,
-) {
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+async function updateEvent(client: DbClient, userId: string, eventId: string, req: Request) {
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const allowed: Record<string, string> = {
     title: 'title',
@@ -168,7 +198,7 @@ async function updateEvent(
 
   const patch: Record<string, unknown> = {};
   for (const [clientKey, dbKey] of Object.entries(allowed)) {
-    if (clientKey in body) patch[dbKey] = body[clientKey];
+    if (Object.hasOwn(body, clientKey)) patch[dbKey] = body[clientKey];
   }
 
   if (Object.keys(patch).length === 0) return badRequest('No updatable fields provided.');
@@ -177,78 +207,219 @@ async function updateEvent(
   if (validation) return badRequest(validation);
 
   const { data, error } = await client
-    .from('events').update(patch).eq('id', eventId).eq('owner_id', userId).select().maybeSingle();
+    .from('events')
+    // Asserted once, here, and only because the patch is assembled key by key
+    // from the `allowed` map above — the keys are ours, and the values have
+    // just been validated. This is a narrowing of a hand-built object, not the
+    // old `as unknown as` on a query *result*: those are now derived from the
+    // generated schema and cannot be asserted into agreement.
+    .update(patch as Database['public']['Tables']['events']['Update'])
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .select()
+    .maybeSingle();
   if (error) return dbError(error, 'events:update');
   if (!data) return notFound('Event');
-  return ok(data);
+  return ok(toEventModel(data));
 }
 
-async function deleteEvent(client: SupabaseClient, userId: string, eventId: string) {
+async function deleteEvent(client: DbClient, userId: string, eventId: string) {
   // `select()` so a delete that matched nothing is reported as 404 rather than
   // a misleading success.
   const { data, error } = await client
-    .from('events').delete().eq('id', eventId).eq('owner_id', userId).select('id');
+    .from('events')
+    .delete()
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .select('id');
   if (error) return dbError(error, 'events:delete');
   if (!data || data.length === 0) return notFound('Event');
-  return ok({ deleted: true });
+  // 202 with a null payload — EmptyResult, per the contract.
+  return ok(null, 202);
 }
 
-async function upsertOccurrenceOverride(
-  client: SupabaseClient,
+/** The OccurrenceOverride fields the contract declares, mapped to columns. */
+const OVERRIDE_FIELDS: Record<string, string> = {
+  title: 'title',
+  description: 'description',
+  location: 'location',
+  localStart: 'local_start',
+  localEnd: 'local_end',
+  visibility: 'visibility',
+  colorLabel: 'color_label',
+};
+
+async function overrideOccurrence(
+  client: DbClient,
   userId: string,
   eventId: string,
   date: string,
   req: Request,
 ) {
-  // Verify the master belongs to this user.
+  // The full master row: needed both for ownership and to resolve the merged
+  // occurrence the contract says this route returns.
   const { data: master, error: masterErr } = await client
-    .from('events').select('id').eq('id', eventId).eq('owner_id', userId)
-    .eq('is_master', true).maybeSingle();
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .eq('is_master', true)
+    .maybeSingle();
   if (masterErr) return dbError(masterErr, 'events:override:master');
   if (!master) return notFound('Event');
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return badRequest('Request body must be valid JSON.'); }
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
 
   const validation = validateOccurrenceOverride(body);
   if (validation) return badRequest(validation);
 
-  const row = {
+  // Build the jsonb patch of only the keys the request actually named. The
+  // three states matter: absent means "keep", present-and-null means "clear".
+  const patch: Record<string, unknown> = {};
+  for (const clientKey of Object.keys(OVERRIDE_FIELDS)) {
+    if (Object.hasOwn(body, clientKey)) patch[clientKey] = body[clientKey];
+  }
+
+  // Reject writes the series cannot represent BEFORE persisting: a date the
+  // rule never generates is a 404, and a merged window that ends on or before
+  // it starts is a 400 (each field can be valid alone — a localEnd-only
+  // override landing behind the master's projected start, say). This needs the
+  // pre-write state, so it reads the current exception row; unlike the write
+  // itself, a stale read here only risks accepting a write that a concurrent
+  // edit has just made valid or invalid, not silently discarding a field.
+  const { data: existing, error: existingErr } = await client
+    .from('events')
+    .select('*')
+    .eq('master_event_id', eventId)
+    .eq('recurrence_exception_date', date)
+    .maybeSingle();
+  if (existingErr) return dbError(existingErr, 'events:override:existing');
+
+  // `body` is narrowed to an object by the guard above, but a function
+  // declaration does not inherit control-flow narrowing, so bind it first.
+  const requested = body;
+  /** The request's value for an overridable field, or the stored one. */
+  const pick = <T,>(clientKey: string, fallback: T): T =>
+    Object.hasOwn(requested, clientKey) ? (requested[clientKey] as T) : fallback;
+
+  // Built as a typed `EventRow`, field by field, rather than assembled in a
+  // `Record<string, unknown>` and asserted. The dynamic loop this replaces was
+  // only possible because the shape was cast away afterwards; writing the
+  // overridable fields out means a renamed column fails to compile here too.
+  const candidate: EventRow = {
+    id: existing?.id ?? '00000000-0000-0000-0000-000000000000',
     owner_id: userId,
     master_event_id: eventId,
     recurrence_exception_date: date,
     is_master: false,
     is_cancelled: false,
-    title: (body.title as string | null) ?? null,
-    description: (body.description as string | null) ?? null,
-    location: (body.location as string | null) ?? null,
-    local_start: (body.localStart as string | null) ?? null,
-    local_end: (body.localEnd as string | null) ?? null,
-    timezone_id: (body.timezoneId as string | null) ?? null,
-    visibility: (body.visibility as string | null) ?? null,
-    color_label: (body.colorLabel as string | null) ?? null,
-    shared_with: (body.sharedWith as string[] | null) ?? [],
+    recurrence_rule: null,
+    is_variable_schedule: false,
+    timezone_id: pick('timezoneId', existing?.timezone_id ?? null),
+    title: pick('title', existing?.title ?? null),
+    description: pick('description', existing?.description ?? null),
+    location: pick('location', existing?.location ?? null),
+    local_start: pick('localStart', existing?.local_start ?? null),
+    local_end: pick('localEnd', existing?.local_end ?? null),
+    visibility: pick('visibility', existing?.visibility ?? null),
+    color_label: pick('colorLabel', existing?.color_label ?? null),
   };
 
-  const { data, error } = await client
-    .from('events')
-    .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' })
-    .select()
-    .single();
+  const masterRecord = mapEventRow(master);
+  const isVariable = master.is_variable_schedule === true;
 
+  // A variable master has no rule for the engine to expand, so its valid dates
+  // are the weeks /occurrences synthesises placeholders for — one predicate,
+  // shared, rather than each route deciding for itself.
+  if (isVariable && !isVariableWeek(master, date)) {
+    return notFound('Occurrence');
+  }
+
+  let resolved;
+  try {
+    // `candidate` is assembled above from the existing row plus the patch, so
+    // it is an events row by construction rather than by assertion of a query
+    // result.
+    resolved = expandOccurrences([masterRecord, mapEventRow(candidate)], {
+      from: date,
+      to: date,
+    }).find((o) => o.occurrenceDate === date);
+  } catch (error) {
+    if (error instanceof UnsupportedRRuleError) {
+      return badRequest(`Stored recurrence rule is not supported: ${error.message}`);
+    }
+    throw error;
+  }
+  // On a variable master the engine emits nothing until the week has concrete
+  // times, so an absent result there means "still un-entered", not "no such
+  // occurrence" — the date was already validated above.
+  if (!resolved && !isVariable) return notFound('Occurrence');
+  if (resolved && resolved.localEnd <= resolved.localStart) {
+    return badRequest('The overridden occurrence would end on or before it starts.');
+  }
+
+  // The write is a single INSERT ... ON CONFLICT DO UPDATE inside the database,
+  // so the merge is evaluated against the live row. Doing it here as
+  // read-then-upsert lost concurrent edits ~42% of the time — see
+  // 20260904000001.
+  // No `.maybeSingle()`: 20260904000001 declares `returns public.events`, a
+  // composite rather than a set, so PostgREST already answers with one object.
+  // Asking for a single row on top of that types `data` as `never` and hides
+  // whatever the row really is — the same inference collapse the concatenated
+  // column lists caused (AD-11). A composite-returning function that resolves
+  // to NULL still yields `null` here, so the `!written` guard below is
+  // unchanged.
+  const { data: written, error } = await client.rpc('override_occurrence', {
+    p_master_id: eventId,
+    p_date: date,
+    // The RPC's parameter is `jsonb`, so the generated signature wants `Json`.
+    // The patch is built from OVERRIDE_FIELDS above and its values came from a
+    // parsed JSON body, so it is Json by construction.
+    p_patch: patch as Json,
+  });
   if (error) return dbError(error, 'events:override');
-  return ok(data);
+  if (!written) return notFound('Event');
+
+  // Re-resolve from what was actually persisted rather than from the candidate,
+  // so the response reflects the merge the database performed — including any
+  // field a concurrent PATCH set.
+  const finalRecord = mapEventRow(written);
+  const final = expandOccurrences([masterRecord, finalRecord], { from: date, to: date }).find(
+    (o) => o.occurrenceDate === date,
+  );
+
+  // EventOccurrenceResult, per the contract.
+  if (final) {
+    // Concrete times, so this is no longer a placeholder even on a variable
+    // master — matching what /occurrences serves for the date after the write.
+    return ok({ ...final, isVariableSchedule: false });
+  }
+
+  // Variable master, week still un-entered: return the placeholder the
+  // calendar will show, so the client sees the same object either way.
+  return ok(
+    variablePlaceholder(
+      master,
+      date,
+      written,
+    ),
+  );
 }
 
 async function cancelOccurrence(
-  client: SupabaseClient,
+  client: DbClient,
   userId: string,
   eventId: string,
   date: string,
 ) {
   const { data: master, error: masterErr } = await client
-    .from('events').select('id').eq('id', eventId).eq('owner_id', userId)
-    .eq('is_master', true).maybeSingle();
+    .from('events')
+    .select('id')
+    .eq('id', eventId)
+    .eq('owner_id', userId)
+    .eq('is_master', true)
+    .maybeSingle();
   if (masterErr) return dbError(masterErr, 'events:cancel:master');
   if (!master) return notFound('Event');
 
@@ -265,7 +436,8 @@ async function cancelOccurrence(
     .upsert(row, { onConflict: 'master_event_id,recurrence_exception_date' });
 
   if (error) return dbError(error, 'events:cancel');
-  return ok({ cancelled: true });
+  // 202 with a null payload — EmptyResult, per the contract.
+  return ok(null, 202);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,17 +463,6 @@ function validateRecurrenceRule(value: unknown): string | null {
       return `"recurrenceRule" is not supported: ${error.message}`;
     }
     return '"recurrenceRule" is not a valid RRULE.';
-  }
-  return null;
-}
-
-/** IANA zone check — `Intl` is the authority already used by the engine. */
-function validateTimezone(value: unknown): string | null {
-  if (typeof value !== 'string' || value === '') return '"timezoneId" is required.';
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-  } catch {
-    return `"timezoneId" is not a recognised IANA timezone: ${value}`;
   }
   return null;
 }
@@ -338,14 +499,23 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
   if ('title' in body && (typeof body.title !== 'string' || body.title.trim() === '')) {
     return '"title" must be a non-empty string.';
   }
-  if ('localStart' in body && (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))) {
+  if (
+    'localStart' in body &&
+    (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))
+  ) {
     return '"localStart" must be YYYY-MM-DDTHH:mm[:ss].';
   }
-  if ('localEnd' in body && (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))) {
+  if (
+    'localEnd' in body &&
+    (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))
+  ) {
     return '"localEnd" must be YYYY-MM-DDTHH:mm[:ss].';
   }
-  if (typeof body.localStart === 'string' && typeof body.localEnd === 'string'
-      && body.localEnd <= body.localStart) {
+  if (
+    typeof body.localStart === 'string' &&
+    typeof body.localEnd === 'string' &&
+    body.localEnd <= body.localStart
+  ) {
     return '"localEnd" must be after "localStart".';
   }
   if ('timezoneId' in body) {
@@ -362,26 +532,45 @@ function validateEventPatch(body: Record<string, unknown>): string | null {
   return null;
 }
 
-/** An override is sparse — every field is optional, but must be well-formed. */
+/**
+ * An override is sparse — every declared field is optional, but the contract's
+ * `OccurrenceOverride` sets `additionalProperties: false` and `minProperties: 1`,
+ * so an empty body and undeclared keys (previously `timezoneId` and `sharedWith`
+ * were silently persisted) are rejected rather than absorbed.
+ */
 function validateOccurrenceOverride(body: Record<string, unknown>): string | null {
-  if ('localStart' in body && body.localStart !== null
-      && (typeof body.localStart !== 'string' || !LOCAL_DT_RE.test(body.localStart))) {
-    return '"localStart" must be YYYY-MM-DDTHH:mm[:ss] or null.';
+  const keys = Object.keys(body);
+  if (keys.length === 0) return 'An override must set at least one field.';
+  // Object.hasOwn, not `in`: `in` walks the prototype chain, so a body of
+  // {"toString": 1} was accepted as a known field, set nothing, and still
+  // upserted is_cancelled:false — quietly reinstating a cancelled occurrence
+  // and answering 200 for a request that named no real field at all.
+  const unknown = keys.filter((k) => !Object.hasOwn(OVERRIDE_FIELDS, k));
+  if (unknown.length > 0) {
+    return `Unknown field(s) for an occurrence override: ${unknown.join(', ')}.`;
   }
-  if ('localEnd' in body && body.localEnd !== null
-      && (typeof body.localEnd !== 'string' || !LOCAL_DT_RE.test(body.localEnd))) {
-    return '"localEnd" must be YYYY-MM-DDTHH:mm[:ss] or null.';
+
+  if ('title' in body && (typeof body.title !== 'string' || body.title.trim() === '')) {
+    return '"title" must be a non-empty string.';
   }
-  if (typeof body.localStart === 'string' && typeof body.localEnd === 'string'
-      && body.localEnd <= body.localStart) {
+  for (const key of ['description', 'location', 'colorLabel'] as const) {
+    if (key in body && body[key] !== null && typeof body[key] !== 'string') {
+      return `"${key}" must be a string or null.`;
+    }
+  }
+  for (const key of ['localStart', 'localEnd'] as const) {
+    if (key in body && (typeof body[key] !== 'string' || !LOCAL_DT_RE.test(body[key] as string))) {
+      return `"${key}" must be YYYY-MM-DDTHH:mm[:ss].`;
+    }
+  }
+  if (
+    typeof body.localStart === 'string' &&
+    typeof body.localEnd === 'string' &&
+    body.localEnd <= body.localStart
+  ) {
     return '"localEnd" must be after "localStart".';
   }
-  if ('timezoneId' in body && body.timezoneId !== null) {
-    const tzError = validateTimezone(body.timezoneId);
-    if (tzError) return tzError;
-  }
-  if ('visibility' in body && body.visibility !== null
-      && !VISIBILITIES.includes(body.visibility as string)) {
+  if ('visibility' in body && !VISIBILITIES.includes(body.visibility as string)) {
     return `"visibility" must be one of: ${VISIBILITIES.join(', ')}.`;
   }
   return null;

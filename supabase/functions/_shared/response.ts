@@ -53,6 +53,15 @@ const CLIENT_FAULT_CODES: Record<string, { status: number; code: string; message
   '23505': { status: 409, code: 'CONFLICT', message: 'That record already exists.' },
   '23514': { status: 400, code: 'VALIDATION_ERROR', message: 'A field failed a validation rule.' },
   '22007': { status: 400, code: 'VALIDATION_ERROR', message: 'A date or time value was malformed.' },
+  // 22008 is what an impossible-but-well-formed date (2026-02-31) raises. The
+  // handlers validate dates before writing, so reaching this is a gap in that
+  // validation rather than the normal path — but a 400 is still the honest
+  // answer to bad input, and its absence here made one such typo a 500.
+  '22008': {
+    status: 400,
+    code: 'VALIDATION_ERROR',
+    message: 'A date or time value was out of range.',
+  },
   '22023': { status: 400, code: 'VALIDATION_ERROR', message: 'A field value was invalid.' },
   '42501': { status: 403, code: 'FORBIDDEN', message: 'You do not have access to that record.' },
 };

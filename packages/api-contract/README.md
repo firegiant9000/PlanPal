@@ -42,23 +42,32 @@ work.
 
 ## Error codes
 
-`code` is stable and machine-readable. Current set and their HTTP mapping:
+`code` is stable and machine-readable — clients switch on it, never on `message`.
+It is now a real enum in the spec (`components/schemas/ErrorCode`), so
+`ApiErrorCode` is generated rather than described in prose here.
 
-| code                  | HTTP | Meaning                                                                 |
-| --------------------- | ---- | ----------------------------------------------------------------------- |
-| `validation_error`    | 400  | Request body/params failed validation (`details` carries field errors). |
-| `unauthenticated`     | 401  | Missing/invalid access token.                                           |
-| `forbidden`           | 403  | Authenticated but not permitted.                                        |
-| `not_found`           | 404  | Resource missing or not visible to caller.                              |
-| `conflict`            | 409  | Generic state conflict.                                                 |
-| `already_friends`     | 409  | Connection already exists.                                              |
-| `request_pending`     | 409  | A friend request is already pending.                                    |
-| `friend_code_invalid` | 400  | Code not recognized.                                                    |
-| `friend_code_expired` | 400  | Code is past its 30-day expiry.                                         |
-| `recurrence_invalid`  | 400  | RRULE could not be parsed/expanded.                                     |
-| `timezone_invalid`    | 400  | Not a valid IANA timezone id.                                           |
-| `rate_limited`        | 429  | Per-account rate limit hit (`Retry-After` header).                      |
-| `internal_error`      | 500  | Unexpected server error.                                                |
+Values are **UPPER_SNAKE_CASE**. This table previously listed them in lowercase,
+which no server ever emitted; a client switching on `code` against the old table
+would not have matched anything.
+
+| code                 | HTTP | Meaning                                                                 |
+| -------------------- | ---- | ----------------------------------------------------------------------- |
+| `VALIDATION_ERROR`   | 400  | Request body/params failed validation (`details` carries field errors). |
+| `UNAUTHENTICATED`    | 401  | Missing/invalid access token.                                           |
+| `FORBIDDEN`          | 403  | Authenticated but not permitted.                                        |
+| `NOT_FOUND`          | 404  | Resource missing or not visible to caller.                              |
+| `CONFLICT`           | 409  | State conflict (duplicate username, already-existing exception, …).     |
+| `METHOD_NOT_ALLOWED` | 405  | Route exists; HTTP verb does not.                                       |
+| `RATE_LIMITED`       | 429  | Per-account rate limit hit (`Retry-After` header). Not yet emitted.     |
+| `INTERNAL_ERROR`     | 500  | Unexpected server error.                                                |
+
+Field-level and domain-specific detail belongs in `details`, not in a wider
+`code` enum. The earlier table also listed `already_friends`, `request_pending`,
+`friend_code_invalid`, `friend_code_expired`, `recurrence_invalid` and
+`timezone_invalid`. Those are not in the enum: the friend graph is M6 and no
+endpoint emits them today, so adding them now would be exactly the speculative
+contract the "Deferred" section below exists to avoid. They come back, in this
+case, with the phase that emits them.
 
 ## Deferred (added when their phase begins)
 

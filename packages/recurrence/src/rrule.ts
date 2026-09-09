@@ -457,3 +457,74 @@ export function* occurrenceDates(
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// buildRRule — the inverse of parseRRule, for event forms.
+//
+// Moved here from `apps/mobile`'s CreateEventForm in T28. Construction belongs
+// beside parsing: while it lived in the mobile form, web growing its own form
+// meant a second implementation, and nothing in the build compares two copies
+// of a rule builder. AD-3.
+// ---------------------------------------------------------------------------
+
+export type RepeatSelection =
+  | 'none'
+  | 'daily'
+  | 'weekly'
+  | 'biweekly'
+  | 'monthly'
+  | 'yearly'
+  | 'variable';
+
+export type EndRepeatSelection = 'never' | 'ondate' | 'aftercount';
+
+export interface RRuleSelection {
+  repeat: RepeatSelection;
+  endRepeat: EndRepeatSelection;
+  /** `yyyy-mm-dd`, when `endRepeat` is `ondate`. */
+  endDate?: string;
+  /** When `endRepeat` is `aftercount`. */
+  count?: string | number;
+  /** Weekday codes (`MO`, `TU`, …). Applies to weekly and biweekly only. */
+  byDay?: string[];
+}
+
+const FREQ_FOR: Record<Exclude<RepeatSelection, 'none' | 'variable'>, string> = {
+  daily: 'FREQ=DAILY',
+  weekly: 'FREQ=WEEKLY',
+  biweekly: 'FREQ=WEEKLY;INTERVAL=2',
+  monthly: 'FREQ=MONTHLY',
+  yearly: 'FREQ=YEARLY',
+};
+
+/**
+ * Build an RRULE string from a form selection, or `null` when the selection
+ * describes a non-recurring event.
+ *
+ * Everything this returns must parse: `parseRRule` is strict, and a rule the
+ * builder emits but the engine rejects fails at event-creation time, in front
+ * of the user. The round-trip test in `rrule.test.ts` is what enforces that.
+ */
+export function buildRRule(selection: RRuleSelection): string | null {
+  const { repeat, endRepeat, endDate, count, byDay } = selection;
+  if (repeat === 'none' || repeat === 'variable') return null;
+
+  let rule = FREQ_FOR[repeat];
+
+  // BYDAY is only meaningful for weekly cadences here. Emitting it on DAILY or
+  // YEARLY would be a rule the form cannot actually express and the parser
+  // treats differently.
+  if ((repeat === 'weekly' || repeat === 'biweekly') && byDay !== undefined && byDay.length > 0) {
+    rule += `;BYDAY=${byDay.join(',')}`;
+  }
+
+  // A selection whose value is still empty is not an ending. `UNTIL=` and
+  // `COUNT=` with nothing after them are both rejected by the parser.
+  if (endRepeat === 'ondate' && endDate !== undefined && endDate !== '') {
+    rule += `;UNTIL=${endDate.replace(/-/g, '')}`;
+  } else if (endRepeat === 'aftercount' && count !== undefined && String(count) !== '') {
+    rule += `;COUNT=${count}`;
+  }
+
+  return rule;
+}

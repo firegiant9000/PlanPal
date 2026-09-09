@@ -44,3 +44,7 @@ Thumbs.db
 
 # Claude Code — .claude/settings.json is shared; local overrides are personal
 .claude/settings.local.json
+
+# Exported calendars. These are real user data — event titles, times and
+# locations — and are produced by GET /export/ical during manual testing.
+*.ics

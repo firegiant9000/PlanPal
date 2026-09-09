@@ -55,6 +55,18 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # `pnpm build` now bundles the mobile app too (apps/mobile's `build` script
+      # runs `expo export`), which is the gate that was missing when PR #3's
+      # defect 10 shipped: `tsc` under moduleResolution "Bundler" never exercises
+      # Metro's transform, so a native module off the SDK pin broke the bundle
+      # with nothing in CI to notice.
+      #
+      # This step is the second half. The bundle can succeed while the dependency
+      # tree has already drifted past the SDK pins, so check the pins directly.
+      # It exits 1 and names every off-pin package.
+      - name: Mobile dependency pins match the Expo SDK
+        run: pnpm --dir apps/mobile exec expo install --check
+
       # The Edge Functions consume a generated mirror of packages/recurrence.
       # If someone edits the engine without re-running the sync, the deployed
       # backend silently expands recurrence differently from the tested code.
@@ -74,6 +86,75 @@ jobs:
         working-directory: supabase/functions
         run: deno lint
 
+      # Every function entry point, enumerated by glob rather than by hand: the
+      # hand-written list silently fell behind the functions this repo added,
+      # so export/ and friend-code/ (and _shared/ical.ts, which only export
+      # imports) shipped with no type gate at all. `deno lint` and the
+      # integration suite both miss compile-only errors — Deno serves modules
+      # without type-checking them.
       - name: Type-check Edge Functions
         working-directory: supabase/functions
-        run: deno check events/index.ts occurrences/index.ts notify-scheduler/index.ts
+        run: deno check */index.ts
+
+  # The only job that runs a database. Until it existed, nothing in CI ever
+  # applied a migration or invoked a function — `verify` and `edge-functions`
+  # are both static. That is how Month 2 shipped five criticals behind a green
+  # build: `deno check` proves a function compiles, never that it works.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Pinned, not `latest`. An unpinned CLI changes the integration stack
+      # under the team without a commit, and C2's generated-types drift gate
+      # would flap on any release that reformats the output. Bumping it is its
+      # own PR — see docs/BOOTSTRAP.md.
+      # `notify-scheduler` refuses to run without CRON_SECRET (500 "Server
+      # misconfigured"), and the Edge runtime reads function env vars from this
+      # file when `supabase start` runs — a container restart does not pick it
+      # up. So it must be written BEFORE the stack starts. `.env*` is
+      # gitignored, hence created here rather than committed.
+      - name: Function secrets for the local stack
+        run: echo CRON_SECRET=test-cron-secret > supabase/functions/.env
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      # Applies every migration from scratch, then serves the Edge Functions.
+      # A migration that cannot apply to an empty database fails here.
+      - name: Start local Supabase stack
+        run: supabase start
+
+      # `_shared/database.types.ts` is generated from the live schema and
+      # committed. If a migration lands without regenerating it, the Edge
+      # Functions type-check against a schema that no longer exists — which is
+      # exactly the blindness the 22 `as unknown as` casts used to provide.
+      # This is the only job with a database, so it is the only one that can
+      # tell.
+      - name: Generated database types are in sync with the migrations
+        run: |
+          npx --yes supabase@2.117.0 gen types typescript --local \
+            > supabase/functions/_shared/database.types.ts
+          git diff --exit-code -- supabase/functions/_shared/database.types.ts
+
+      - name: Integration suite (invokes the functions over HTTP)
+        run: pnpm test:integration
+
+      - name: Stack logs on failure
+        if: failure()
+        run: supabase status && docker ps -a
+
+      - name: Stop stack
+        if: always()
+        run: supabase stop

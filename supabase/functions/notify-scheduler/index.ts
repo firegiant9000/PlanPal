@@ -19,7 +19,8 @@
  *                             open to anyone holding the public anon key.
  *   EXPO_ACCESS_TOKEN         optional; for Enhanced Push on Expo servers
  */
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.116.0';
+import type { Database } from '../_shared/database.types.ts';
 import {
   expandOccurrences,
   mapEventRow,
@@ -86,7 +87,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Forbidden.' }, 403);
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+  const supabase = createClient<Database>(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   // The dispatch window is the current minute, plus a short lookback so a
   // missed tick (cold start, deploy, transient failure) does not silently drop
@@ -193,6 +194,21 @@ Deno.serve(async (req: Request) => {
 
   await pruneOccasionally(supabase);
 
+  // One line per tick, so M10's materialised-queue rewrite starts from measured
+  // numbers rather than from guesses about where the time goes. §D's scale note
+  // reasons that a few hundred rows and tens of milliseconds is fine at 200
+  // users and that pre-empting it is not worth it — this is what would show
+  // that reasoning going wrong, and at one line a minute it costs nothing.
+  console.log(
+    JSON.stringify({
+      at: 'notify-scheduler.tick',
+      durationMs: Date.now() - now,
+      candidates: candidates.length,
+      dispatched,
+      deadTokens: deadTokens.size,
+    }),
+  );
+
   return jsonResponse({ dispatched, candidates: candidates.length, deadTokens: deadTokens.size });
 });
 
@@ -205,7 +221,7 @@ Deno.serve(async (req: Request) => {
  * inside [windowStartMs, windowEndMs).
  */
 async function collectCandidates(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<Database>,
   windowStartMs: number,
   windowEndMs: number,
 ): Promise<Candidate[]> {
@@ -263,10 +279,7 @@ async function collectCandidates(
   if (eventsErr) throw eventsErr;
 
   const rowsByOwner = new Map<string, EventRow[]>();
-  // See the note in occurrences/index.ts: a runtime-built select list degrades
-  // supabase-js's inference to `GenericStringError[]`, so the widening cast is
-  // required until generated database types land.
-  for (const row of (eventRows ?? []) as unknown as EventRow[]) {
+  for (const row of eventRows ?? []) {
     const list = rowsByOwner.get(row.owner_id) ?? [];
     list.push(row);
     rowsByOwner.set(row.owner_id, list);
@@ -322,14 +335,18 @@ async function collectCandidates(
   return candidates;
 }
 
-const EVENT_COLUMNS =
-  'id,owner_id,title,description,location,local_start,local_end,timezone_id,' +
-  'is_master,master_event_id,recurrence_exception_date,recurrence_rule,' +
-  'is_cancelled,is_variable_schedule,visibility,color_label';
+/**
+ * ONE single-quoted literal — see the same constant in occurrences/index.ts.
+ * A concatenated select string widens to `string`, which collapses
+ * supabase-js's row inference to `GenericStringError` and hides every genuine
+ * mismatch between this query and the row type it is assigned to (AD-11).
+ */
+// deno-fmt-ignore
+const EVENT_COLUMNS = 'id,owner_id,title,description,location,local_start,local_end,timezone_id,is_master,master_event_id,recurrence_exception_date,recurrence_rule,is_cancelled,is_variable_schedule,visibility,color_label';
 
 /** Remove candidates already present in `notification_sends`. */
 async function filterAlreadySent(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<Database>,
   candidates: Candidate[],
 ): Promise<Candidate[]> {
   const eventIds = [...new Set(candidates.map((c) => c.eventId))];
@@ -417,7 +434,7 @@ function formatLeadTimeBody(minutes: number): string {
 }
 
 /** Cheap probabilistic retention — roughly once every ~200 ticks (~3 hours). */
-async function pruneOccasionally(supabase: SupabaseClient): Promise<void> {
+async function pruneOccasionally(supabase: SupabaseClient<Database>): Promise<void> {
   if (Math.random() > 0.005) return;
   const { error } = await supabase.rpc('prune_notification_sends', { p_keep_days: 7 });
   if (error) console.error('prune_notification_sends failed:', error);

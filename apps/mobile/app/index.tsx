@@ -1,99 +1,181 @@
 /**
- * HomeScreen — M3 calendar view.
+ * HomeScreen — the calendar, on real data.
  *
  * Composes:
  *   - MonthView (calendar grid, US holidays, event dots)
  *   - CalendarBottomSheet (week strip + 24h time-sheet, swipe-up)
  *   - FAB to open event creation
  *
- * Data: stubbed EventOccurrence list for M3. Real API wiring (GET /occurrences)
- * lands in Month 3 once auth flows are complete.
+ * Data comes from `src/lib/loadOccurrences` — cache first for an instant warm
+ * start, then always a network refresh, which is what makes both "is this
+ * stale?" and "are we offline?" answerable. The window and the colour rule are
+ * pure functions in `src/lib/occurrenceWindow`. All three live outside this
+ * file so they are testable without a renderer; the offline bug that shipped
+ * here was in wiring no test could reach.
  */
-import React, { useCallback, useMemo, useState } from 'react';
-import { StyleSheet, TouchableOpacity, Text, SafeAreaView } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { theme } from '@planpal/ui';
+import { currentYearMonth, today } from '@planpal/calendar-core';
 import { MonthView } from '../src/components/calendar/MonthView';
 import { CalendarBottomSheet } from '../src/components/calendar/CalendarBottomSheet';
-import type { OccurrenceItem } from '../src/components/calendar/EventBar';
-import { today } from '../src/lib/calendarUtils';
+import { CalendarState, EDITS_BLOCKED, type CalendarStateKind } from '../src/lib/emptyStates';
+import { loadOccurrences } from '../src/lib/loadOccurrences';
+import { OfflineBanner } from '../src/components/OfflineBanner';
+import {
+  occurrenceWindow,
+  shiftLocalDateTime,
+  type OccurrenceItem,
+} from '../src/lib/occurrenceWindow';
+import { planpalClient } from '../src/lib/planpalClient';
 
-const TODAY_STUB = today();
-
-// ---------------------------------------------------------------------------
-// Stub events — replaced by GET /occurrences in Month 3.
-// ---------------------------------------------------------------------------
-const STUB_EVENTS: OccurrenceItem[] = [
-  {
-    eventId: 'stub-1',
-    occurrenceDate: TODAY_STUB,
-    title: 'Morning standup',
-    localStart: `${TODAY_STUB}T09:30:00`,
-    localEnd: `${TODAY_STUB}T09:45:00`,
-    timezoneId: 'America/New_York',
-    visibility: 'private',
-    colorLabel: null,
-    isException: false,
-    isVariableSchedule: false,
-  },
-  {
-    eventId: 'stub-2',
-    occurrenceDate: TODAY_STUB,
-    title: 'Lunch',
-    localStart: `${TODAY_STUB}T12:00:00`,
-    localEnd: `${TODAY_STUB}T13:00:00`,
-    timezoneId: 'America/New_York',
-    visibility: 'shared_all',
-    colorLabel: '#30a46c',
-    isException: false,
-    isVariableSchedule: false,
-  },
-];
+type LoadState = { kind: 'loading' } | { kind: 'ready' } | { kind: CalendarStateKind };
 
 export default function HomeScreen() {
   const router = useRouter();
 
-  const todayDate = new Date();
-  const [year, setYear] = useState(todayDate.getFullYear());
-  const [month, setMonth] = useState(todayDate.getMonth() + 1);
+  const [initial] = useState(() => currentYearMonth());
+  const [year, setYear] = useState(initial.year);
+  const [month, setMonth] = useState(initial.month);
   const [selectedDate, setSelectedDate] = useState(() => today());
 
+  const [items, setItems] = useState<OccurrenceItem[]>([]);
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
+  const [reloadToken, setReloadToken] = useState(0);
+  /** Non-null once a read has been served that we could not refresh (T29). */
+  const [staleSince, setStaleSince] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  const window = useMemo(() => occurrenceWindow(year, month), [year, month]);
+
+  useEffect(() => {
+    let active = true;
+    setState({ kind: 'loading' });
+
+    void loadOccurrences(
+      planpalClient.occurrences,
+      window,
+      // Early paint from cache, so a warm start renders immediately instead of
+      // showing a spinner until the network answers.
+      (cached) => {
+        if (!active) return;
+        setItems(cached.items);
+        setStaleSince(cached.fetchedAt);
+        setState({ kind: cached.items.length === 0 ? 'empty' : 'ready' });
+      },
+    ).then((result) => {
+      if (!active) return;
+      setItems(result.items);
+      setStaleSince(result.fetchedAt);
+      setOffline(result.offline);
+      setState(
+        result.failure !== null
+          ? { kind: result.failure }
+          : { kind: result.items.length === 0 ? 'empty' : 'ready' },
+      );
+    });
+
+    return () => {
+      // A fast month-swipe leaves several reads in flight; without this the
+      // slowest one wins and the screen shows a month the user has left.
+      active = false;
+    };
+  }, [window, reloadToken]);
+
+  const reload = useCallback(() => setReloadToken((n) => n + 1), []);
+
   const handlePrevMonth = useCallback(() => {
-    if (month === 1) { setMonth(12); setYear((y) => y - 1); }
-    else setMonth((m) => m - 1);
+    if (month === 1) {
+      setMonth(12);
+      setYear((y) => y - 1);
+    } else setMonth((m) => m - 1);
   }, [month]);
 
   const handleNextMonth = useCallback(() => {
-    if (month === 12) { setMonth(1); setYear((y) => y + 1); }
-    else setMonth((m) => m + 1);
+    if (month === 12) {
+      setMonth(1);
+      setYear((y) => y + 1);
+    } else setMonth((m) => m + 1);
   }, [month]);
 
-  // Group stub events by date.
   const eventsByDate = useMemo(() => {
     const map: Record<string, OccurrenceItem[]> = {};
-    for (const e of STUB_EVENTS) {
-      (map[e.occurrenceDate] ??= []).push(e);
-    }
+    for (const e of items) (map[e.occurrenceDate] ??= []).push(e);
     return map;
-  }, []);
+  }, [items]);
 
   const eventDots = useMemo(
     () => Object.keys(eventsByDate).map((date) => ({ date })),
     [eventsByDate],
   );
 
-  const handleDayPress = useCallback((date: string) => {
-    setSelectedDate(date);
-  }, []);
+  const handleDayPress = useCallback((date: string) => setSelectedDate(date), []);
 
-  const handleEventPress = useCallback((event: OccurrenceItem) => {
-    // Navigate to event detail — placeholder for M3 detail screen.
-    console.log('Event pressed:', event.title);
-  }, []);
+  /**
+   * Minimal occurrence actions.
+   *
+   * A proper editor is T28's shape of work; what T18 needs is that the
+   * override and cancel routes are reachable from the phone and that the
+   * calendar reflects the result. "Move an hour later" is a deliberate stand-in
+   * for a time picker, not a shipping affordance.
+   */
+  const handleEventPress = useCallback(
+    (event: OccurrenceItem) => {
+      if (offline) {
+        // Offline EDITING is Post-V1. Explain it rather than letting the write
+        // fail with a network error the user cannot interpret (T29 DoD).
+        Alert.alert('You are offline', EDITS_BLOCKED, [{ text: 'OK', style: 'cancel' }]);
+        return;
+      }
+
+      Alert.alert(event.title, event.isException ? 'Moved occurrence' : 'Part of a series', [
+        {
+          text: 'Move 1 hour later',
+          onPress: () => {
+            void planpalClient.events
+              .overrideOccurrence(event.eventId, event.occurrenceDate, {
+                localStart: shiftLocalDateTime(event.localStart, 1),
+                localEnd: shiftLocalDateTime(event.localEnd, 1),
+              })
+              .then(reload)
+              .catch((e: unknown) =>
+                Alert.alert('Could not move it', e instanceof Error ? e.message : 'Unknown error'),
+              );
+          },
+        },
+        {
+          text: 'Cancel this occurrence',
+          style: 'destructive',
+          onPress: () => {
+            void planpalClient.events
+              .cancelOccurrence(event.eventId, event.occurrenceDate)
+              .then(reload)
+              .catch((e: unknown) =>
+                Alert.alert(
+                  'Could not cancel it',
+                  e instanceof Error ? e.message : 'Unknown error',
+                ),
+              );
+          },
+        },
+        { text: 'Dismiss', style: 'cancel' },
+      ]);
+    },
+    // `offline` belongs here: without it the callback captures the value from
+    // the render that created it and the guard above never fires.
+    [reload, offline],
+  );
+
+  // Offline with something cached is not an error state — it renders the
+  // calendar plus a banner. Offline with nothing cached still needs the state.
+  const servingStale = offline && items.length > 0;
+  const showState = !servingStale && state.kind !== 'ready' && state.kind !== 'loading';
 
   return (
     <SafeAreaView style={styles.root}>
-      {/* Month grid */}
+      {servingStale ? <OfflineBanner fetchedAt={staleSince} /> : null}
+
       <MonthView
         year={year}
         month={month}
@@ -103,15 +185,19 @@ export default function HomeScreen() {
         onNextMonth={handleNextMonth}
       />
 
-      {/* Swipe-up bottom sheet with week strip + time-sheet */}
-      <CalendarBottomSheet
-        initialDate={selectedDate}
-        eventsByDate={eventsByDate}
-        onEventPress={handleEventPress}
-        onDateChange={setSelectedDate}
-      />
+      {showState ? (
+        <View style={styles.stateOverlay}>
+          <CalendarState kind={state.kind as CalendarStateKind} onRetry={reload} />
+        </View>
+      ) : (
+        <CalendarBottomSheet
+          initialDate={selectedDate}
+          eventsByDate={eventsByDate}
+          onEventPress={handleEventPress}
+          onDateChange={setSelectedDate}
+        />
+      )}
 
-      {/* FAB — create event */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => router.push('/create-event')}
@@ -128,6 +214,11 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  stateOverlay: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
   },
   fab: {
     position: 'absolute',

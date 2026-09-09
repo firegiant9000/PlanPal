@@ -118,8 +118,10 @@ function buildOccurrence(
  * window. Throws {@link RecurrenceRangeError} on a bad/oversized range and
  * `UnsupportedRRuleError` on an out-of-subset RRULE (see `rrule.ts`).
  *
- * Variable-schedule masters are intentionally NOT expanded — they have no concrete
- * schedule until one is entered (M2 "schedule not yet entered" behavior).
+ * Variable-schedule masters have no expandable rule; only their filled-in weeks
+ * (non-cancelled exception rows) are emitted. An unfilled variable master
+ * expands to nothing (M2 "schedule not yet entered" behavior — the /occurrences
+ * endpoint synthesises weekly placeholders for those separately).
  */
 export function expandOccurrences(records: readonly EventRecord[], range: DateRange): EventOccurrence[] {
   const { fromMs, toMs } = resolveRange(range);
@@ -140,17 +142,44 @@ export function expandOccurrences(records: readonly EventRecord[], range: DateRa
 
   for (const rec of records) {
     if (!rec.isMaster) continue; // exception rows are applied via their master
-    if (rec.isVariableSchedule) continue; // no concrete schedule yet (M2)
     if (rec.localStart == null) continue; // defensive: a master without timing
 
     const startCivil = parseLocal(rec.localStart);
     const seriesStartMs = civilMidnightMs(startCivil.year, startCivil.month, startCivil.day);
     const exceptions = exceptionsByMaster.get(rec.id);
 
+    if (rec.isVariableSchedule) {
+      // A variable master has no expandable rule, but an exception row that
+      // supplies concrete times IS a week the user has filled in. Without this
+      // the filled-in week vanished: the engine skipped the master and the
+      // /occurrences placeholder pass skips dates it expects the engine to emit.
+      //
+      // `localStart` is the test, not merely "an exception exists". A variable
+      // master's own localStart is a PLACEHOLDER the engine must never present
+      // as a real time, so a title-only override would otherwise produce a
+      // timed occurrence at a fabricated hour and silently destroy the
+      // "schedule not yet entered" state for that week. Such a row stays with
+      // the placeholder pass, which layers its fields on instead.
+      if (exceptions) {
+        for (const [dateStr, exception] of exceptions) {
+          if (exception.isCancelled || exception.localStart == null) continue;
+          const dateMs = parseDateOnly(dateStr, 'recurrenceExceptionDate');
+          if (dateMs < fromMs || dateMs > toMs) continue;
+          out.push(buildOccurrence(rec, dateMs, exception));
+        }
+      }
+      continue;
+    }
+
     if (rec.recurrenceRule == null) {
-      // Standalone event — a single occurrence on its own date.
+      // Standalone event — a single occurrence on its own date. Exceptions
+      // apply here exactly as they do to a recurring series: a THIS-cancel
+      // removes it, a THIS-override layers onto it.
       if (seriesStartMs >= fromMs && seriesStartMs <= toMs) {
-        out.push(buildOccurrence(rec, seriesStartMs, null));
+        const exception = exceptions?.get(formatDateOnly(seriesStartMs));
+        if (!exception?.isCancelled) {
+          out.push(buildOccurrence(rec, seriesStartMs, exception ?? null));
+        }
       }
       continue;
     }

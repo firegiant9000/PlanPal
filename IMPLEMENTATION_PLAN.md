@@ -54,15 +54,24 @@ Correct model:
 
 **Action:** amend the `PATCH /me` description in the spec, regenerate types, and add a test asserting a profile timezone change leaves every `events` row untouched.
 
-### AD-5 — `utc_start`/`utc_end` are an index approximation, never user-visible
+### AD-5 — `utc_start`/`utc_end` are an index approximation, never user-visible ✅ _done 2026-09-03 (T16)_
 
-`events_derive_utc()` uses Postgres `AT TIME ZONE`; the engine applies an explicit gap/fold policy (gaps shift forward, folds take the earlier instant) and **ignores the stored value**. They can disagree by one hour, twice a year.
+`events_derive_utc()` uses Postgres `AT TIME ZONE`; the engine applies an explicit gap/fold policy (gaps shift forward, folds take the earlier instant) and **ignores the stored value**.
+
+**Measured in T16** (`supabase/tests/src/utc-authority.test.ts`), the divergence is narrower than this section originally assumed — once a year, not twice:
+
+| Case                                   | Engine            | Postgres          |        |
+| -------------------------------------- | ----------------- | ----------------- | ------ |
+| `2026-03-08 02:30` NY — spring **gap** | `07:30:00Z`       | `07:30:00Z`       | agree  |
+| `2026-11-01 01:30` NY — fall **fold**  | `05:30:00Z` (EDT) | `06:30:00Z` (EST) | **1h** |
+
+Postgres also resolves the gap forward, so only the fold differs.
 
 Rather than reimplement the engine's policy in PL/pgSQL, we declare the engine authoritative for anything a user sees, and `utc_*` authoritative only for range-scans and conflict detection.
 
-**Action:** update the column comments, and add a test asserting the two agree for all times outside a gap/fold hour.
+**Done:** `20260903000001_utc_index_approximation.sql` records the split authority on both columns and on `events_derive_utc()` itself; `utc-authority.test.ts` asserts agreement across 12 zone/date cases, pins the fold divergence at exactly one hour, and fails if the column comments stop naming which derivation wins.
 
-### AD-6 — `apps/api` is deleted
+### AD-6 — `apps/api` is deleted ✅ _done 2026-09-02 (T5)_
 
 It holds a 14-line file that explicitly is not a runtime entry point, while the real backend lives in `supabase/functions`. A placeholder workspace mirroring nothing is how the duplicate engine happened. Delete it; `supabase/functions` is the API.
 
@@ -111,7 +120,9 @@ The Edge Functions currently assert `as unknown as EventRow[]` on every query re
 
 `supabase gen types typescript` produces a `Database` type from the live schema; `createClient<Database>(...)` then types `.from('events').select()` properly, and a column renamed in a migration becomes a compile error rather than a runtime `undefined`.
 
-**Consequence:** T32. Until it lands, every widening cast carries a comment saying why — an unexplained `as unknown as` is indistinguishable from a bug.
+**Correction (2026-09-08, T32).** That last claim is true **only once the `.select()` argument is a single string literal.** supabase-js parses the select string at the type level, and a concatenated list widens to `string`, which collapses inference to `GenericStringError` no matter how good the generated types are. The two therefore have to land together, literals first — verified by renaming `color_label` on a throwaway migration and watching `deno check` produce `SelectQueryError<"column 'color_label' does not exist on 'events'.">` at the call site and `Property 'color_label' does not exist … Did you mean 'colour_label'?` in `serialize.ts`.
+
+**Status:** done. The 22 `as unknown as` casts are gone; the row interfaces in `_shared/serialize.ts`, `ical.ts` and `variable.ts` are aliases or `Pick`s of the generated `Database`, and `ci.yml`'s `integration` job regenerates and `git diff --exit-code`s the committed types so a migration cannot land without them.
 
 ---
 
@@ -225,7 +236,12 @@ export interface PlanPalClient {
     get(id: string): Promise<Event>;
     update(id: string, patch: EventUpdate): Promise<Event>;
     remove(id: string): Promise<void>;
-    overrideOccurrence(id: string, date: string, patch: OccurrenceOverride): Promise<Event>;
+    /** PATCH; resolves to the merged occurrence, not the master. See §11. */
+    overrideOccurrence(
+      id: string,
+      date: string,
+      patch: OccurrenceOverride,
+    ): Promise<EventOccurrence>;
     cancelOccurrence(id: string, date: string): Promise<void>;
   };
   occurrences: {
@@ -390,6 +406,31 @@ Run `pnpm db:reset` after each to prove the chain applies from scratch.
 
 Each: edit `openapi.yaml` → `pnpm contract:generate` → commit the regenerated types. `contract.yml` fails if they drift.
 
+### The occurrence override route — ✅ _decided 2026-09-08: keep `PATCH` → `EventOccurrence`_
+
+The code, the contract and this document all disagreed three ways. `openapi.yaml`
+declared `PATCH` returning `EventOccurrenceResult`; the function implemented `PUT`
+returning `Event`; §P3 and §5 said `PUT`.
+
+**Resolved in favour of the contract: `PATCH`, returning `EventOccurrence`.** The
+implementation and this document were changed to match, not the spec. The reasoning
+is that `Event` is not merely a different-but-valid choice here — it is
+unrepresentable. An exception row is sparse by design, so returning one through the
+`Event` serialiser emitted `localStart`, `localEnd`, `timezoneId`, `utcStart`,
+`utcEnd` and `visibility` as `null`, every one of them required and non-nullable in
+that schema. A client reading the generated type saw `null` through a non-nullable
+field with no type error. `EventOccurrence` is the only declared shape that can
+describe a resolved occurrence honestly, and a partial edit is `PATCH` semantics
+anyway — `PUT`-as-replace would oblige clients to send the whole window, which
+contradicts sparse-by-design.
+
+Consequences, all landed together: the route merges onto any existing exception row
+rather than resetting unmentioned fields; it resolves the occurrence through the
+engine before writing, so a date the rule never generates is a `404` and an
+inverted merged window is a `400`; and `supabase/tests/src/contract-shape.test.ts`
+was flipped from asserting the `Event` shape to asserting `EventOccurrence` — that
+test would otherwise have blocked the fix, so it had to move with it.
+
 ---
 
 ## 12. Task table
@@ -473,7 +514,14 @@ T3 (Apple) runs beside everything and gates T25/T26. If it slips, M4 slips regar
 ## 15. Standing rules for this phase
 
 - Recurrence is implemented once (AD-1). Anything else consumes the mirror.
-- Every `SECURITY DEFINER` function ships with `revoke execute from public, anon, authenticated` **in the same migration**.
+- Every `SECURITY DEFINER` function ships with `revoke execute from public, anon, authenticated`
+  **in the same migration** — **unless the function takes no target parameter and derives its
+  subject from `auth.uid()`; every such exception is listed in `grants.test.ts` with its
+  justification.** _(Decided 2026-09-08 for `delete_me()`: a function with no argument cannot be
+  aimed at another account, and a user-scoped client has no rights in the `auth` schema, so
+  revoking it would leave GDPR erasure uncallable. The allowlist is machine-checked in both
+  directions — an unlisted grant is a finding, and a listed entry whose grant has gone is also a
+  finding — both verified by watched failure on 2026-09-08.)_
 - Every new endpoint lands with an integration test in the same PR.
 - Every new shared package sets coverage thresholds when it is created, not later.
 - A contract change is a two-dev decision, and the regenerated types are committed with it.

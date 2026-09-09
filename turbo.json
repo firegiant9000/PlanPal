@@ -33,7 +33,7 @@
     },
     "generate": {
       "inputs": ["openapi.yaml"],
-      "outputs": ["../types/src/generated/**"]
+      "outputs": ["../types/src/generated/**", "../../supabase/functions/_shared/contract-types.ts"]
     },
     "typecheck": {
       "dependsOn": ["^build"]

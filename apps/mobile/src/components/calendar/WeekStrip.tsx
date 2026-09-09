@@ -5,7 +5,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { theme } from '@planpal/ui';
-import { buildWeekDays, fmtDayLabel } from '../../lib/calendarUtils';
+import { buildWeekDays, fmtDayLabel } from '@planpal/calendar-core';
 
 interface WeekStripProps {
   anchorDate: string; // any date in the week
@@ -30,8 +30,20 @@ export function WeekStrip({ anchorDate, selectedDate, onSelectDate }: WeekStripP
             accessibilityState={{ selected: isSelected }}
           >
             <Text style={[styles.dayName, isSelected && styles.selectedText]}>{dayName}</Text>
-            <View style={[styles.circle, day.isToday && styles.todayCircle, isSelected && styles.selectedCircle]}>
-              <Text style={[styles.dayNum, isSelected && styles.selectedText, day.isToday && !isSelected && styles.todayNum]}>
+            <View
+              style={[
+                styles.circle,
+                day.isToday && styles.todayCircle,
+                isSelected && styles.selectedCircle,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.dayNum,
+                  isSelected && styles.selectedText,
+                  day.isToday && !isSelected && styles.todayNum,
+                ]}
+              >
                 {dayNum}
               </Text>
             </View>

@@ -43,4 +43,47 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },
+  {
+    // §15: "No component imports `supabase-js` or calls `fetch` — enforced by
+    // lint, not by convention." `packages/api-client` is the single path from
+    // either app to the backend (AD-7), and this is what keeps it single.
+    //
+    // NOTE the rule names. §5 proposed banning `fetch` with
+    // `no-restricted-imports`, which cannot work: `fetch` is a global and that
+    // rule only inspects import declarations. `no-restricted-globals` is the
+    // one that sees it.
+    files: ['apps/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
+    ignores: [
+      // The one legal home for both.
+      'packages/api-client/**',
+      // Tests stub `fetch` and mock supabase-js by name; that is how the
+      // client is tested at all.
+      '**/*.test.{ts,tsx}',
+      // Deno, not a pnpm workspace, and outside `files` above in any case —
+      // listed so the exception set is explicit rather than incidental.
+      'supabase/**',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@supabase/*', '@supabase/*/**'],
+              message:
+                'Do not use supabase-js directly — use @planpal/api-client, which owns the session and the refresh-once-retry-once path.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message:
+            'Do not call fetch directly — use @planpal/api-client, so auth headers, the ApiResult envelope and PlanPalApiError stay in one place.',
+        },
+      ],
+    },
+  },
 );

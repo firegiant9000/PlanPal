@@ -24,14 +24,17 @@ import {
 } from '../_shared/response.ts';
 import {
   expandOccurrences,
-  localToUtc,
   mapEventRow,
   MAX_RANGE_DAYS,
-  parseLocal,
   RecurrenceRangeError,
   UnsupportedRRuleError,
   type EventRow,
 } from '../_shared/recurrence/index.ts';
+import {
+  type OccurrenceModel,
+  variablePlaceholder,
+  variableWeeksInRange,
+} from '../_shared/variable.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
@@ -39,28 +42,13 @@ const DAY_MS = 86_400_000;
 /**
  * The engine's `EventOccurrence` plus the variable-schedule marker.
  *
- * NOTE (contract drift, needs both-dev sign-off before it is resolved):
- * `isVariableSchedule` is NOT in `packages/api-contract/openapi.yaml`'s
- * `EventOccurrence` schema, but the mobile calendar consumes it to render the
- * "Schedule not yet entered" state. Either add it to the spec and regenerate
- * types, or drop the placeholder from this response — do not leave it drifted.
+ * `isVariableSchedule` is part of the contract as of T9 — it is a required
+ * property of `EventOccurrence` in `packages/api-contract/openapi.yaml`, so
+ * this shape and the generated `@planpal/types` model agree. Keep it required:
+ * the mobile calendar reads it to render the "schedule not yet entered" state,
+ * and an optional field would make that a silent undefined.
  */
-interface OccurrenceResponseItem {
-  eventId: string;
-  occurrenceDate: string;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  localStart: string;
-  localEnd: string;
-  timezoneId: string;
-  utcStart: string;
-  utcEnd: string;
-  visibility: string;
-  colorLabel?: string | null;
-  isException: boolean;
-  isVariableSchedule: boolean;
-}
+type OccurrenceResponseItem = OccurrenceModel;
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions();
@@ -115,12 +103,14 @@ Deno.serve(async (req: Request) => {
   if (mastersRes.error) return dbError(mastersRes.error, 'occurrences:masters');
   if (exceptionsRes.error) return dbError(exceptionsRes.error, 'occurrences:exceptions');
 
-  // `as unknown as` is required, not laziness: supabase-js parses the select
-  // string at the type level, and a runtime-built column list (EVENT_COLUMNS)
-  // degrades its inference to `GenericStringError[]`. The real fix is generated
-  // database types (`supabase gen types typescript`), which is an M3 task.
-  const masters = (mastersRes.data ?? []) as unknown as EventRow[];
-  const exceptions = (exceptionsRes.data ?? []) as unknown as EventRow[];
+  // No cast. This comment used to say `as unknown as` was "required, not
+  // laziness" — true then, false now. Both halves that made it true have
+  // landed: EVENT_COLUMNS is a single literal (C1), so supabase-js can infer
+  // the row from the select string, and the schema is generated (T32), so the
+  // inferred row is the real one. A cast here would go back to asserting the
+  // shape instead of deriving it.
+  const masters = mastersRes.data ?? [];
+  const exceptions = exceptionsRes.data ?? [];
   const records = [...masters, ...exceptions].map(mapEventRow);
 
   let items: OccurrenceResponseItem[];
@@ -149,17 +139,31 @@ Deno.serve(async (req: Request) => {
   return ok({ items });
 });
 
-/** Exactly the columns `mapEventRow` reads, plus `utc_start` for range-bounding. */
-const EVENT_COLUMNS =
-  'id,owner_id,title,description,location,local_start,local_end,timezone_id,' +
-  'is_master,master_event_id,recurrence_exception_date,recurrence_rule,' +
-  'is_cancelled,is_variable_schedule,visibility,color_label,utc_start';
+/**
+ * Exactly the columns `mapEventRow` reads, plus `utc_start` for range-bounding.
+ *
+ * ONE single-quoted literal, deliberately. `supabase-js` parses the `.select()`
+ * string at the type level, and TypeScript widens `'a' + 'b'` to `string` —
+ * which degrades the row inference to `GenericStringError` and makes
+ * `Property 'title' does not exist` the only thing the checker can say. Kept
+ * literal, a misspelled column is a compile error instead (AD-11). Do not
+ * break this line with `+`; let it exceed the line width.
+ */
+// deno-fmt-ignore
+const EVENT_COLUMNS = 'id,owner_id,title,description,location,local_start,local_end,timezone_id,is_master,master_event_id,recurrence_exception_date,recurrence_rule,is_cancelled,is_variable_schedule,visibility,color_label,utc_start';
 
 /**
  * One placeholder per week of the window for each variable-schedule master,
- * anchored on the master's own weekday. Weeks the user has already filled in
- * (an exception row exists for that date) are skipped, and cancelled weeks are
- * omitted entirely.
+ * anchored on the master's own weekday.
+ *
+ * This pass and the engine partition the dates between them, and the split is
+ * on whether the exception row carries concrete times — NOT on whether one
+ * exists. A cancelled week is dropped; a week with real times belongs to the
+ * engine and is skipped here; a week whose exception sets only descriptive
+ * fields (a title, say) is still un-entered, so it stays a placeholder and
+ * those fields are layered onto it. Keying on mere existence made a
+ * title-only override disappear from the calendar, and letting the engine take
+ * it invented a time from the master's placeholder hour.
  */
 function variablePlaceholders(
   masters: EventRow[],
@@ -170,46 +174,21 @@ function variablePlaceholders(
   const variable = masters.filter((m) => m.is_variable_schedule && m.local_start && m.timezone_id);
   if (variable.length === 0) return [];
 
-  const overridden = new Set(
-    exceptions.map((e) => `${e.master_event_id}:${e.recurrence_exception_date}`),
-  );
+  const byKey = new Map<string, EventRow>();
+  for (const e of exceptions) {
+    byKey.set(`${e.master_event_id}:${e.recurrence_exception_date}`, e);
+  }
 
   const out: OccurrenceResponseItem[] = [];
 
   for (const master of variable) {
-    const startCivil = parseLocal(master.local_start!);
-    const anchorMs = Date.UTC(startCivil.year, startCivil.month - 1, startCivil.day);
-    const anchorDow = new Date(anchorMs).getUTCDay();
+    for (const date of variableWeeksInRange(master, fromMs, toMs)) {
+      const exception = byKey.get(`${master.id}:${date}`);
+      // Cancelled: the week is gone. Concrete times: the engine emits it.
+      if (exception?.is_cancelled) continue;
+      if (exception?.local_start != null) continue;
 
-    // First occurrence of the master's weekday on/after the window start.
-    const fromDow = new Date(fromMs).getUTCDay();
-    let cursor = fromMs + ((anchorDow - fromDow + 7) % 7) * DAY_MS;
-
-    for (; cursor <= toMs; cursor += 7 * DAY_MS) {
-      if (cursor < anchorMs) continue; // routine had not started yet
-      const date = new Date(cursor).toISOString().slice(0, 10);
-      if (overridden.has(`${master.id}:${date}`)) continue;
-
-      const localStart = `${date}T${master.local_start!.slice(11, 19) || '00:00:00'}`;
-      const localEnd = `${date}T${(master.local_end ?? master.local_start!).slice(11, 19) || '00:00:00'}`;
-      const tz = master.timezone_id!;
-
-      out.push({
-        eventId: master.id,
-        occurrenceDate: date,
-        title: master.title ?? 'Variable schedule',
-        description: master.description,
-        location: master.location,
-        localStart,
-        localEnd,
-        timezoneId: tz,
-        utcStart: localToUtc(parseLocal(localStart), tz),
-        utcEnd: localToUtc(parseLocal(localEnd), tz),
-        visibility: master.visibility ?? 'private',
-        colorLabel: master.color_label,
-        isException: false,
-        isVariableSchedule: true,
-      });
+      out.push(variablePlaceholder(master, date, exception ?? null));
     }
   }
 
