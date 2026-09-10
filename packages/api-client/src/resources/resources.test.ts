@@ -152,7 +152,8 @@ const ROUTES: ReadonlyArray<{
     name: 'occurrences.range',
     method: 'GET',
     path: '/occurrences?from=2026-09-01&to=2026-09-30',
-    data: [],
+    // `{ items }`, not a bare array — the handler ends in `ok({ items })`.
+    data: { items: [] },
     call: (c) => c.occurrences.range('2026-09-01', '2026-09-30'),
   },
   { name: 'profile.get', method: 'GET', path: '/me', data: {}, call: (c) => c.profile.get() },
@@ -309,7 +310,7 @@ describe('occurrences.range windowing (AD-10)', () => {
   it('rejects an occurrences range longer than 180 days by chunking, never by sending it', async () => {
     // MAX_RANGE_DAYS = 180 and the endpoint 400s above it, so a year-wide
     // swipe has to be split by the client rather than discovered at runtime.
-    stubJson([]);
+    stubJson({ items: [] });
 
     await client.occurrences.range('2026-01-15', '2026-12-20');
 
@@ -334,7 +335,9 @@ describe('occurrences.range windowing (AD-10)', () => {
         { eventId: 'e1', occurrenceDate: `${month}-20` },
       ];
       return Promise.resolve(
-        new Response(JSON.stringify({ ok: true, data: items }), {
+        // `{ items }`, matching `ok({ items })` in the handler. A bare array
+        // here is a shape the server never sends.
+        new Response(JSON.stringify({ ok: true, data: { items } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -349,7 +352,7 @@ describe('occurrences.range windowing (AD-10)', () => {
 
   it('normalises a range that crosses a year boundary', async () => {
     // The off-by-one lives here: month 12 -> month 1 and year + 1.
-    stubJson([]);
+    stubJson({ items: [] });
 
     await client.occurrences.range('2026-12-20', '2027-01-05');
 
@@ -360,7 +363,7 @@ describe('occurrences.range windowing (AD-10)', () => {
   });
 
   it('asks for one month when from and to fall inside it', async () => {
-    stubJson([]);
+    stubJson({ items: [] });
 
     await client.occurrences.range('2026-02-10', '2026-02-11');
 
@@ -368,7 +371,7 @@ describe('occurrences.range windowing (AD-10)', () => {
   });
 
   it('ends February on the 29th in a leap year', async () => {
-    stubJson([]);
+    stubJson({ items: [] });
 
     await client.occurrences.range('2028-02-10', '2028-02-11');
 

@@ -73,7 +73,12 @@ export function createOccurrencesResource(http: Http, deps: OccurrencesDeps): Oc
       throw new CacheMissError(occurrenceCacheKey(userId ?? 'anonymous', month.key));
     }
 
-    const items = await http.json<EventOccurrence[]>('occurrences', {
+    // The handler answers `ApiResult<{ items: EventOccurrence[] }>` and
+    // `http.json` hands back the envelope's `data`, so the array is one level
+    // in. Typing this as `EventOccurrence[]` compiled fine and produced an
+    // object at runtime, which `rangeDetailed`'s spread then rejected with
+    // "Spread syntax requires ...iterable[Symbol.iterator] to be a function".
+    const { items } = await http.json<{ items: EventOccurrence[] }>('occurrences', {
       query: { from: month.from, to: month.to },
     });
     if (!cacheable) return { items, fetchedAt: null };

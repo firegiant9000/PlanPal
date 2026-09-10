@@ -247,3 +247,41 @@ describe('createAuthClient', () => {
     await expect(auth.getAccessToken()).resolves.toBeNull();
   });
 });
+
+describe('signUpWithPassword', () => {
+  beforeEach(() => {
+    gotrue.signUp.mockReset();
+  });
+
+  it('reports confirmation-required when GoTrue returns no session', async () => {
+    gotrue.signUp.mockResolvedValue({ data: { session: null, user: { id: 'u1' } }, error: null });
+    const auth = createAuthClient(OPTIONS);
+
+    await expect(auth.signUpWithPassword('new@example.com', 'password123')).resolves.toEqual({
+      status: 'confirmation-required',
+    });
+  });
+
+  it('returns the session when confirmations are off', async () => {
+    const session = { access_token: 'access-1' };
+    gotrue.signUp.mockResolvedValue({ data: { session, user: { id: 'u1' } }, error: null });
+    const auth = createAuthClient(OPTIONS);
+
+    await expect(auth.signUpWithPassword('new@example.com', 'password123')).resolves.toEqual({
+      status: 'signed-in',
+      session,
+    });
+  });
+
+  it('still throws a real GoTrue error', async () => {
+    gotrue.signUp.mockResolvedValue({
+      data: { session: null, user: null },
+      error: new Error('Password should be at least 6 characters'),
+    });
+    const auth = createAuthClient(OPTIONS);
+
+    await expect(auth.signUpWithPassword('new@example.com', 'x')).rejects.toThrow(
+      'Password should be at least 6 characters',
+    );
+  });
+});

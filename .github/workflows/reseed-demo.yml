@@ -1,0 +1,86 @@
+# The demo account is publicly writable: RLS keeps a visitor inside their own
+# rows, but the demo user's own rows are editable by anyone with the published
+# password. This puts it back every night.
+#
+# seed.demo.sql is idempotent (it deletes the demo user's rows first) and dates
+# everything relative to now(), so a reseed also rolls the calendar forward
+# into the current week.
+#
+# Required secrets (Settings → Environments → staging), same set deploy-staging
+# uses: SUPABASE_ACCESS_TOKEN, SUPABASE_STAGING_PROJECT_REF,
+# SUPABASE_STAGING_DB_PASSWORD.
+name: reseed-demo
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # 09:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: reseed-demo
+  cancel-in-progress: false
+
+jobs:
+  reseed:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Are the demo secrets configured?
+        id: gate
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$PROJECT_REF" ]; then
+            echo "::notice::Demo secrets not configured — skipping the reseed."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Link the demo project
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
+        run: npx --yes supabase@2.117.0 link --project-ref "$PROJECT_REF"
+
+      - name: Reseed
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
+        run: npx --yes supabase@2.117.0 db query --linked --file supabase/seed.demo.sql
+
+      - name: Verify the calendar is populated for the current week
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
+        run: |
+          # A reseed that "succeeded" but left an empty week is the exact
+          # failure this workflow exists to prevent, so assert the outcome
+          # rather than the exit code.
+          #
+          # Parsed as JSON rather than grepped. `supabase db query` wraps its
+          # result in an envelope carrying a RANDOM hex `boundary`, and a
+          # substring match for an isolated "0" hits that boundary roughly a
+          # quarter of the time — e.g. boundary "5ca0ea23..." contains "a0e",
+          # which would report an empty calendar while the real count was 5.
+          npx --yes supabase@2.117.0 db query --linked --output-format json \
+            "select count(*)::int as n from public.events \
+             where owner_id='33333333-3333-3333-3333-333333333333' \
+               and local_start >= date_trunc('week', now())::timestamp \
+               and local_start < (date_trunc('week', now()) + interval '7 days')::timestamp" \
+            > count.json
+          node -e '
+            const fs = require("fs");
+            const n = JSON.parse(fs.readFileSync("count.json", "utf8")).rows?.[0]?.n;
+            console.log("events in the current week:", n);
+            if (!Number.isInteger(n) || n === 0) {
+              console.log("::error::The demo calendar is empty for the current week after reseeding.");
+              process.exit(1);
+            }
+          '

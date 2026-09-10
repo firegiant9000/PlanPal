@@ -2,7 +2,7 @@
 
 How to get PlanPal running locally, plus the manual cloud steps Phase 0 can't
 automate. Tracks the Phase 0 checklist in
-[MONTH_1_PLAN.md](../MONTH_1_PLAN.md).
+[MONTH_1_PLAN.md](planning/MONTH_1_PLAN.md).
 
 ## Prerequisites
 
@@ -35,6 +35,20 @@ cp .env.example .env          # then fill local values (see docs/SECRETS.md)
 pnpm db:start                 # boot local Supabase (Docker)
 pnpm db:reset                 # apply migrations + seed.sql to the local DB
 ```
+
+**`apps/web` needs its own env file.** Next.js reads env from the app directory,
+not the monorepo root, so the `.env` above is invisible to it and the app throws
+`NEXT_PUBLIC_SUPABASE_URL is not set` on first render. Create
+`apps/web/.env.local` with the local stack's values, which `pnpm db:start`
+prints:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<the ANON_KEY from pnpm db:start>
+```
+
+It is gitignored (`.env.*`). Restart `pnpm --filter @planpal/web dev` after
+creating it — Next reads env files at startup only.
 
 Common workspace commands (Turborepo, run from repo root):
 

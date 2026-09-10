@@ -1,6 +1,6 @@
 # MVP exit gate — evidence log
 
-The gate in [MONTH_3_4_PLAN.md](../MONTH_3_4_PLAN.md) says **"evidence required … not a
+The gate in [MONTH_3_4_PLAN.md](planning/MONTH_3_4_PLAN.md) says **"evidence required … not a
 self-assessment"**. This file exists to hold artefacts, not ticks. A criterion is
 green only when something reproducible is pasted under it.
 
@@ -182,6 +182,6 @@ Recorded so the Beta privacy QA pass does not assume they were covered:
 (2026-09-08). The plan is now ordered by dependency and estimated in ideal days,
 with no start dates and no deadlines — so there are no wk-13/wk-14 conditions
 left to judge. What replaces them is the two milestone conditions at the top of
-`M3_M4_IMPLEMENTATION_PLAN.md`, and the constraint that actually binds: the
+`planning/M3_M4_IMPLEMENTATION_PLAN.md`, and the constraint that actually binds: the
 14-day dogfood window needs consecutive calendar days and cannot begin before
 there are builds to dogfood.

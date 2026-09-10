@@ -3,7 +3,7 @@
 # Verifies the OpenAPI spec is valid and that the generated types in
 # @planpal/types are in sync with it (drift = failed build). Scoped to the
 # Phase 1 deliverable; the full lint/test/deploy CI/CD pipeline is added in
-# Phase 3 (see MONTH_1_PLAN.md) and can extend or absorb this workflow.
+# Phase 3 (see docs/planning/MONTH_1_PLAN.md) and can extend or absorb this workflow.
 name: contract
 
 on:

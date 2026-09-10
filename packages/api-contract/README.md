@@ -3,11 +3,11 @@
 The PlanPal **integration contract** — a single OpenAPI 3.1 document
 ([`openapi.yaml`](openapi.yaml)) describing every endpoint shape, request body,
 response, and error code. This is the Phase 1 deliverable from
-[MONTH_1_PLAN.md](../../MONTH_1_PLAN.md): the spec is agreed **before** any API
+[MONTH_1_PLAN.md](../../docs/planning/MONTH_1_PLAN.md): the spec is agreed **before** any API
 coding, and it is the unblocker for both the consumer (mobile/web) and backend
 work.
 
-> Standing rule (DEVELOPMENT_PLAN.md): the OpenAPI spec is the contract — keep it
+> Standing rule (docs/planning/DEVELOPMENT_PLAN.md): the OpenAPI spec is the contract — keep it
 > current. Any endpoint change lands here first, in the same PR.
 
 ## What's in the contract

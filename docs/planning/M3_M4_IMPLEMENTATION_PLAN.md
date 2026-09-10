@@ -3,8 +3,8 @@
 **Derived from:** [M3_M4_SPECS_PLAN.md](M3_M4_SPECS_PLAN.md) (the investigation of 2026-09-07). That
 document is the source of truth for _why_; this one is the source of truth for _what to do next_.
 Its recommendations are not re-litigated here — they are turned into tasks.
-**Companions:** [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) (§ references, AD-1..AD-11,
-§15 standing rules), [../MONTH_3_4_PLAN.md](../MONTH_3_4_PLAN.md) (P references, the MVP exit gate),
+**Companions:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (§ references, AD-1..AD-11,
+§15 standing rules), [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) (P references, the MVP exit gate),
 PR #3's body (defect and decision numbering).
 **Audience:** an engineer or agent who has never seen this repo. Every task names its files, its
 tests, the exact commands that prove it, and what to revert if it is abandoned.

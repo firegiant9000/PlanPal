@@ -7,9 +7,6 @@ import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { getPlanPalClient } from '../../lib/planpalClient';
 
-/** See apps/mobile/app/sign-up.tsx — the happy path arrives as an exception. */
-const CONFIRMATION_REQUIRED = 'Check your email to confirm the account before signing in.';
-
 export default function SignUpPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,12 +19,14 @@ export default function SignUpPage() {
     setError(null);
     setNotice(null);
     try {
-      await getPlanPalClient().auth.signUpWithPassword(email.trim(), password);
-      setNotice('Account created. You can sign in now.');
+      const result = await getPlanPalClient().auth.signUpWithPassword(email.trim(), password);
+      setNotice(
+        result.status === 'signed-in'
+          ? 'Account created. You can sign in now.'
+          : 'Account created. Check your email to confirm it before signing in.',
+      );
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not create the account.';
-      if (message === CONFIRMATION_REQUIRED) setNotice(message);
-      else setError(message);
+      setError(e instanceof Error ? e.message : 'Could not create the account.');
     } finally {
       setBusy(false);
     }

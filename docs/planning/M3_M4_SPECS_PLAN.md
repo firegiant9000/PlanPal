@@ -2,7 +2,7 @@
 
 **Branch:** `month3-development`, 25 commits ahead of `main`, PR #3 open and mergeable, four CI checks green.
 **Purpose:** make the remaining Month 3 and Month 4 work executable by someone who was not in the room. Every claim below is labelled as **verified** (I ran it and quote the output) or **hypothesis** (I could not run it, and say why).
-**Companions:** [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) (§ references), [MONTH_3_4_PLAN.md](../MONTH_3_4_PLAN.md) (P references), PR #3's body (defect and decision numbering).
+**Companions:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (§ references), [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) (P references), PR #3's body (defect and decision numbering).
 
 ## How this was verified
 

@@ -21,9 +21,22 @@ export interface SessionStore {
   remove(key: string): Promise<void>;
 }
 
+/**
+ * The two ways a sign-up can succeed.
+ *
+ * With `[auth.email] enable_confirmations = true` (supabase/config.toml) a
+ * successful sign-up returns no session until the emailed link is followed.
+ * That is a success, not an error, so it arrives as a value — an earlier
+ * version threw, which forced both sign-up screens to compare the message to
+ * a literal to detect success.
+ */
+export type SignUpResult =
+  | { status: 'signed-in'; session: Session }
+  | { status: 'confirmation-required' };
+
 export interface AuthClient {
   signInWithPassword(email: string, password: string): Promise<Session>;
-  signUpWithPassword(email: string, password: string): Promise<Session>;
+  signUpWithPassword(email: string, password: string): Promise<SignUpResult>;
   /** Redirects; resolves once the redirect has been handed to the platform. */
   signInWithOAuth(provider: 'google' | 'apple'): Promise<void>;
   /**
@@ -111,13 +124,9 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     async signUpWithPassword(email, password) {
       const { data, error } = await client.auth.signUp({ email, password });
       if (error) throw error;
-      // With email confirmations on (supabase/config.toml), a sign-up returns
-      // no session until the link is followed. Say so, rather than handing the
-      // caller a null it has to interpret.
-      if (!data.session) {
-        throw new Error('Check your email to confirm the account before signing in.');
-      }
-      return data.session;
+      return data.session
+        ? { status: 'signed-in', session: data.session }
+        : { status: 'confirmation-required' };
     },
 
     async signInWithOAuth(provider) {

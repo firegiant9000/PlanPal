@@ -9,7 +9,14 @@ export { PlanPalApiError, mapNonEnvelopeError } from './errors';
 export { createHttp } from './http';
 export type { Http, HttpOptions, RequestInitLike } from './http';
 export { createAuthClient, chunkedStorage } from './auth';
-export type { AuthClient, AuthClientOptions, ClearableCache, Session, SessionStore } from './auth';
+export type {
+  AuthClient,
+  AuthClientOptions,
+  ClearableCache,
+  Session,
+  SessionStore,
+  SignUpResult,
+} from './auth';
 
 export { createPlanPalClient } from './client';
 export type { PlanPalClient, PlanPalClientOptions } from './client';

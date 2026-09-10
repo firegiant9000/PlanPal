@@ -18,6 +18,23 @@ import { Client } from 'pg';
 export const DATABASE_URL =
   process.env.SUPABASE_DB_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
+/**
+ * Run a multi-statement SQL script, such as a seed file.
+ *
+ * Separate from `query` because node-postgres switches to the extended
+ * protocol as soon as a parameter array is supplied, and that protocol rejects
+ * more than one statement per request.
+ */
+export async function exec(sql: string): Promise<void> {
+  const client = new Client({ connectionString: DATABASE_URL });
+  await client.connect();
+  try {
+    await client.query(sql);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],

@@ -7,6 +7,7 @@ import { theme } from '@planpal/ui';
 import { Button } from '../../components/Button';
 import { Text } from '../../components/Text';
 import { getPlanPalClient } from '../../lib/planpalClient';
+import { DEMO_EMAIL, DEMO_PASSWORD, isDemoEnabled } from '../../lib/demo';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -23,6 +24,19 @@ export default function SignInPage() {
       router.replace('/');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not sign in.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDemo() {
+    setBusy(true);
+    setError(null);
+    try {
+      await getPlanPalClient().auth.signInWithPassword(DEMO_EMAIL, DEMO_PASSWORD);
+      router.replace('/');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open the demo.');
     } finally {
       setBusy(false);
     }
@@ -66,8 +80,18 @@ export default function SignInPage() {
           </Text>
         )}
 
+        {!isDemoEnabled() ? null : (
+          <>
+            <Button label="Try the demo" onPress={() => void onDemo()} loading={busy} />
+            <Text color="textSecondary" size="sm">
+              Signs in as {DEMO_EMAIL} with sample data. No registration needed.
+            </Text>
+          </>
+        )}
+
         <Button
           label="Sign in"
+          variant="secondary"
           onPress={() => void onSubmit()}
           loading={busy}
           disabled={email.trim() === '' || password === ''}
