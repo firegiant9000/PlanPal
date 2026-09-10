@@ -9,7 +9,12 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning is scoped to this element's own attributes, and
+    // is here for browser extensions that inject a class onto <html> before
+    // React hydrates (an `idc0_343` class was the observed case). The server
+    // renders no className at all, so any difference here comes from outside
+    // the app. It does NOT suppress mismatches in the tree below.
+    <html lang="en" suppressHydrationWarning>
       <body
         style={{
           margin: 0,
