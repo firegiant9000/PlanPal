@@ -8,11 +8,7 @@ Signs in as `demo@planpal.app` / `planpal-demo` with sample data.
 
 [![ci](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml/badge.svg)](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml)
 
-![The calendar](docs/media/calendar.gif)
-
-|                                              |                                              |
-| -------------------------------------------- | -------------------------------------------- |
-| ![Month view](docs/media/calendar-month.png) | ![Event detail](docs/media/event-detail.png) |
+![The month view, with a weekly standup expanded across September — one occurrence moved to Wednesday the 9th, and Friday the 11th cancelled](docs/media/calendar-month.png)
 
 Expo (iOS/Android) and Next.js (web) share one TypeScript core, against a
 Supabase backend — Postgres with row-level security, and a Deno Edge Function
