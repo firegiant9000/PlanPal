@@ -9,13 +9,16 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    // suppressHydrationWarning is scoped to this element's own attributes, and
-    // is here for browser extensions that inject a class onto <html> before
-    // React hydrates (an `idc0_343` class was the observed case). The server
-    // renders no className at all, so any difference here comes from outside
-    // the app. It does NOT suppress mismatches in the tree below.
+    // suppressHydrationWarning is scoped to a single element's own attributes,
+    // which is why both <html> and <body> carry it: browser extensions inject
+    // into each before React hydrates. Observed cases were an `idc0_343` class
+    // on <html>, and Grammarly's `data-gr-ext-installed` /
+    // `data-new-gr-c-s-check-loaded` on <body>. The server renders neither, so
+    // any difference on these two elements comes from outside the app. This
+    // does NOT suppress mismatches anywhere in the tree below.
     <html lang="en" suppressHydrationWarning>
       <body
+        suppressHydrationWarning
         style={{
           margin: 0,
           backgroundColor: theme.colors.bg,
