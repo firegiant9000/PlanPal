@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createPlanPalClient } from '@planpal/api-client';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { exec, query } from './db';
 import { ANON_KEY, SUPABASE_URL } from './harness';
@@ -68,6 +69,24 @@ describe('seed.demo.sql', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { access_token?: string };
     expect(body.access_token).toBeTruthy();
+  });
+
+  it('serves the demo calendar through api-client, the way the web app loads it', async () => {
+    // The assertions above all read the database directly, so they pass even
+    // when no client can render the calendar. This drives the exact path
+    // apps/web/src/app/calendar/page.tsx takes — occurrences.range() over a
+    // month grid window, which spans three calendar months and therefore
+    // exercises the multi-month loop rather than a single request.
+    const client = createPlanPalClient({ supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
+    await client.auth.signInWithPassword('demo@planpal.app', 'planpal-demo');
+
+    const occurrences = await client.occurrences.range('2026-08-30', '2026-10-10');
+
+    const titles = occurrences.map((o) => o.title);
+    expect(titles).toContain('Coffee with Sam');
+    expect(titles).toContain('Standup (moved)');
+    // The cancelled Friday must not come back as an occurrence.
+    expect(occurrences.some((o) => o.occurrenceDate === '2026-09-11')).toBe(false);
   });
 
   it('keeps a recurring master with both an override and a cancellation', async () => {

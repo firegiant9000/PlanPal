@@ -46,9 +46,16 @@ function fetchMock() {
 }
 
 function stubOccurrences(items: unknown[]) {
+  // `data` wraps the array in `{ items }` because that is what the handler
+  // actually sends — `supabase/functions/occurrences/index.ts` ends in
+  // `ok({ items })`. An earlier version of this stub returned a bare array,
+  // which no server ever produces, and the client was written to match the
+  // stub: `occurrences.range()` threw "Spread syntax requires
+  // ...iterable[Symbol.iterator] to be a function" against the real API while
+  // this suite stayed green.
   fetchMock().mockImplementation(() =>
     Promise.resolve(
-      new Response(JSON.stringify({ ok: true, data: items }), {
+      new Response(JSON.stringify({ ok: true, data: { items } }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
