@@ -1,6 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { query } from './db';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { exec, query } from './db';
 import { ANON_KEY, SUPABASE_URL } from './harness';
+
+/**
+ * Applied here rather than assumed to be present.
+ *
+ * `supabase db reset` runs seed.sql, not seed.demo.sql — the demo seed is
+ * applied explicitly, and nothing in ci.yml applies it. An earlier version of
+ * this file passed locally only because the seed happened to have been run by
+ * hand, and failed in CI. Applying it is also the honest arrangement: the
+ * subject under test is this file, so a syntax error in it now fails here.
+ */
+const SEED_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '../../seed.demo.sql');
 
 /**
  * The demo seed's whole job is that a visitor lands on a populated calendar.
@@ -9,6 +23,10 @@ import { ANON_KEY, SUPABASE_URL } from './harness';
  */
 describe('seed.demo.sql', () => {
   const DEMO_ID = '33333333-3333-3333-3333-333333333333';
+
+  beforeAll(async () => {
+    await exec(readFileSync(SEED_PATH, 'utf8'));
+  });
 
   it('gives the demo user events inside the current week', async () => {
     const rows = await query<{ n: number }>(
