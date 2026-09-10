@@ -119,6 +119,18 @@ nvm use && corepack enable
 pnpm install
 cp .env.example .env      # see docs/SECRETS.md
 pnpm db:start && pnpm db:reset
+```
+
+`pnpm db:start` prints the local stack's URL and anon key. The web app reads
+env from its own directory rather than the repo root, so put those two values
+in `apps/web/.env.local` (gitignored) before starting it:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<the ANON_KEY printed above>
+```
+
+```bash
 pnpm dev
 ```
 
