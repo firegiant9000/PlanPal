@@ -527,7 +527,7 @@ function toRRule(text: string): string | null {
 
   const m = t.match(/every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/);
   if (m) {
-    const code = DAY_CODES[m[1]];
+    const code = DAY_CODES[m[1]!];
     if (code) return `FREQ=WEEKLY;BYDAY=${code}`;
   }
 
@@ -558,7 +558,7 @@ function runNormalisation(events: CandidateEvent[], timezone: string): Normalize
   // so relative terms like "next Tuesday" resolve without midnight edge cases.
   const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
   const [ty, tm, td] = todayStr.split('-').map(Number);
-  const refDate = new Date(ty, tm - 1, td, 12, 0, 0);
+  const refDate = new Date(ty!, tm! - 1, td!, 12, 0, 0);
 
   const nowMs = Date.now();
   const windowEndMs = nowMs + WINDOW_DAYS * 86_400_000;
