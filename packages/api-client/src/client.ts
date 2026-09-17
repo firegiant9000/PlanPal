@@ -3,6 +3,7 @@ import { createHttp, type Http } from './http';
 import { createDevicesResource, type DevicesResource } from './resources/devices';
 import { createEventsResource, type EventsResource } from './resources/events';
 import { createExportResource, type ExportResource } from './resources/export';
+import { createFeedbackResource, type FeedbackResource } from './resources/feedback';
 import { createFriendCodeResource, type FriendCodeResource } from './resources/friendCode';
 import { createHealthResource, type Health } from './resources/health';
 import {
@@ -10,6 +11,7 @@ import {
   type NotificationPreferencesResource,
 } from './resources/notificationPreferences';
 import { createOccurrencesResource, type OccurrencesResource } from './resources/occurrences';
+import { createParseResource, type ParseResource } from './resources/parse';
 import { userMonthPrefix, type CacheAdapter } from './cache';
 import { createProfileResource, type ProfileResource } from './resources/profile';
 
@@ -22,6 +24,8 @@ export interface PlanPalClient {
   devices: DevicesResource;
   friendCode: FriendCodeResource;
   export: ExportResource;
+  parse: ParseResource;
+  feedback: FeedbackResource;
   health(): Promise<Health>;
   /** The transport, for the integration suite. Application code uses the resources. */
   http: Http;
@@ -108,6 +112,8 @@ export function createPlanPalClient(opts: PlanPalClientOptions): PlanPalClient {
     devices: createDevicesResource(http),
     friendCode: createFriendCodeResource(http),
     export: createExportResource(http),
+    parse: createParseResource(http),
+    feedback: createFeedbackResource(http),
     health: createHealthResource(http),
   };
 }

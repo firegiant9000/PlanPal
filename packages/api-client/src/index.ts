@@ -38,6 +38,8 @@ export type { NotificationPreferencesResource } from './resources/notificationPr
 export type { DevicesResource } from './resources/devices';
 export type { FriendCodeResource } from './resources/friendCode';
 export type { ExportResource } from './resources/export';
+export type { ParseResource } from './resources/parse';
+export type { FeedbackResource } from './resources/feedback';
 export type { Health } from './resources/health';
 export { monthsBetween } from './resources/occurrences';
 export type { MonthWindow } from './resources/occurrences';

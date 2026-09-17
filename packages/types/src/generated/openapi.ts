@@ -431,6 +431,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/parse/upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a signed URL for uploading a schedule screenshot
+         * @description Returns a short-lived presigned URL for uploading an image directly to
+         *     Supabase Storage, plus the resulting storage path. Pass that path to
+         *     `POST /parse` once the upload completes.
+         *
+         *     Rate-limited to 15 jobs per user per 24 hours (shared with `POST /parse`).
+         */
+        post: operations["createParseUploadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue a screenshot parse job
+         * @description Creates and enqueues a parse job for an already-uploaded screenshot.
+         *     The job runs server-side through four stages: OCR → LLM extraction →
+         *     normalisation → conflict detection. Poll `GET /parse/{jobId}` for status.
+         *
+         *     `storagePath` must be the value returned by `POST /parse/upload-url` and
+         *     the upload must have completed before calling this endpoint.
+         *
+         *     Rate-limited to 15 jobs per user per 24 hours.
+         */
+        post: operations["createParseJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/parse/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get parse job status
+         * @description Poll for job completion. When `status` is `done`, `eventCount` reflects
+         *     the number of events the pipeline extracted (may be zero). When `failed`,
+         *     `errorCode` carries a machine-readable reason.
+         */
+        get: operations["getParseJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit in-app feedback
+         * @description Records a feedback message from the signed-in user, with optional
+         *     client-supplied context (e.g. `{"screen": "calendar", "appVersion":
+         *     "1.2.0"}`). Triage happens outside this API.
+         *
+         *     Rate-limited to 20 submissions per user per 24 hours.
+         */
+        post: operations["createFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ical": {
         parameters: {
             query?: never;
@@ -499,7 +598,7 @@ export interface components {
          *     emit from `_shared/response.ts`.
          * @enum {string}
          */
-        ErrorCode: "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "VALIDATION_ERROR" | "CONFLICT" | "METHOD_NOT_ALLOWED" | "RATE_LIMITED" | "INTERNAL_ERROR";
+        ErrorCode: "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "VALIDATION_ERROR" | "CONFLICT" | "METHOD_NOT_ALLOWED" | "RATE_LIMITED" | "INTERNAL_ERROR" | "SERVICE_UNAVAILABLE";
         ApiError: {
             code: components["schemas"]["ErrorCode"];
             /** @description Developer-facing message; not necessarily user-facing. */
@@ -750,6 +849,77 @@ export interface components {
              */
             version: string;
         };
+        /**
+         * @description Lifecycle of a screenshot parse job.
+         *     `queued` → `processing` → `done` | `failed`.
+         * @enum {string}
+         */
+        ParseJobStatus: "queued" | "processing" | "done" | "failed";
+        ParseUploadUrl: {
+            /**
+             * Format: uri
+             * @description Signed PUT URL for direct upload to Supabase Storage. Valid for 60
+             *     seconds. Upload the image binary as the request body with the correct
+             *     Content-Type header (image/jpeg, image/png, or image/webp).
+             */
+            uploadUrl: string;
+            /**
+             * @description Storage path (e.g. screenshots/<userId>/<uuid>) to pass as
+             *     `storagePath` in `POST /parse` once the upload succeeds.
+             */
+            storagePath: string;
+            expiresAt: components["schemas"]["IsoDateTime"];
+        };
+        ParseJobCreate: {
+            /** @description Storage path returned by `POST /parse/upload-url`. */
+            storagePath: string;
+        };
+        ParseJob: {
+            jobId: components["schemas"]["Uuid"];
+            status: components["schemas"]["ParseJobStatus"];
+            /**
+             * @description Number of calendar events the pipeline extracted. Null until
+             *     `status` is `done`. May be zero if the image contained no events.
+             */
+            eventCount?: number | null;
+            /**
+             * @description Machine-readable failure reason (e.g. `OCR_LOW_CONFIDENCE`,
+             *     `LLM_EXTRACTION_FAILED`). Null unless `status` is `failed`.
+             */
+            errorCode?: string | null;
+            createdAt: components["schemas"]["IsoDateTime"];
+            updatedAt: components["schemas"]["IsoDateTime"];
+        };
+        ParseUploadUrlResult: {
+            /** @constant */
+            ok: true;
+            data: components["schemas"]["ParseUploadUrl"];
+        };
+        ParseJobResult: {
+            /** @constant */
+            ok: true;
+            data: components["schemas"]["ParseJob"];
+        };
+        FeedbackCreate: {
+            message: string;
+            /**
+             * @description Optional client-supplied diagnostic context (e.g. current screen,
+             *     app version). Stored as-is; not validated beyond being a JSON object.
+             */
+            context?: {
+                [key: string]: string;
+            };
+        };
+        Feedback: {
+            id: components["schemas"]["Uuid"];
+            message: string;
+            createdAt: components["schemas"]["IsoDateTime"];
+        };
+        FeedbackResult: {
+            /** @constant */
+            ok: true;
+            data: components["schemas"]["Feedback"];
+        };
         EmptyResult: {
             /** @constant */
             ok: true;
@@ -973,6 +1143,33 @@ export interface components {
                  *       "error": {
                  *         "code": "RATE_LIMITED",
                  *         "message": "Too many requests. Try again later."
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /**
+         * @description The screenshot-parse pipeline's trailing-24h Claude spend has crossed
+         *     the configured budget threshold (M5 cross-cutting: cost monitoring &
+         *     budget alerts). New parse jobs are refused with code
+         *     `SERVICE_UNAVAILABLE` until spend outside the trailing window brings
+         *     the total back under the threshold — there is no separate reset
+         *     action to take. Distinct from the `ServiceUnavailable` response used
+         *     by `/healthz`, which reports an unhealthy dependency rather than a
+         *     deliberate, expected pause.
+         */
+        SpendCapped: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "ok": false,
+                 *       "error": {
+                 *         "code": "SERVICE_UNAVAILABLE",
+                 *         "message": "Screenshot scanning is temporarily paused due to high demand. Please try again later."
                  *       }
                  *     }
                  */
@@ -1670,6 +1867,108 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    createParseUploadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Presigned upload URL and storage path. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParseUploadUrlResult"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["SpendCapped"];
+        };
+    };
+    createParseJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParseJobCreate"];
+            };
+        };
+        responses: {
+            /** @description Job enqueued. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParseJobResult"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["SpendCapped"];
+        };
+    };
+    getParseJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current job state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParseJobResult"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackCreate"];
+            };
+        };
+        responses: {
+            /** @description Feedback recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackResult"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthenticated"];
+            429: components["responses"]["RateLimited"];
         };
     };
     exportICal: {
