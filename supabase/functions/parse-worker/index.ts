@@ -665,10 +665,12 @@ async function runConflictDetection(
   // Fetch all of the user's event rows (masters + exceptions) for the engine.
   const { data: rows, error: fetchError } = await admin
     .from('events')
+    // A single string literal, not `+`-concatenated pieces: postgrest-js infers
+    // the result row type by parsing this string as a literal type, and `+`
+    // between string literals widens the result to `string`, which breaks that
+    // inference and makes every row type-check as `GenericStringError`.
     .select(
-      'id, owner_id, title, description, location, local_start, local_end, ' +
-        'timezone_id, is_master, master_event_id, recurrence_exception_date, ' +
-        'recurrence_rule, is_cancelled, is_variable_schedule, visibility, color_label',
+      'id, owner_id, title, description, location, local_start, local_end, timezone_id, is_master, master_event_id, recurrence_exception_date, recurrence_rule, is_cancelled, is_variable_schedule, visibility, color_label',
     )
     .eq('owner_id', userId);
 
