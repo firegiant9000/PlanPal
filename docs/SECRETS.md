@@ -29,7 +29,13 @@ who can access it, and how often it rotates.
 | `SUPABASE_DB_URL` | migrations | server/CI | ❌ never | 90 days |
 | `SUPABASE_AUTH_GOOGLE_CLIENT_ID` / `_SECRET` | auth | server | ❌ never | 180 days |
 | `SUPABASE_AUTH_APPLE_CLIENT_ID` / `_SECRET` | auth | server | ❌ never | Apple key expires ≤6 mo — rotate before expiry |
+| `UPSTASH_REDIS_REST_URL` | parse pipeline (Beta) | server | ❌ never | on compromise |
+| `UPSTASH_REDIS_REST_TOKEN` | parse pipeline (Beta) | server | ❌ never | 90 days + on compromise |
 | `ANTHROPIC_API_KEY` | parse pipeline (Beta) | server | ❌ never | 90 days + on compromise; set spend alerts |
+| `AWS_ACCESS_KEY_ID` | parse-worker Textract fallback (Beta) | server | ❌ never | 90 days + on compromise |
+| `AWS_SECRET_ACCESS_KEY` | parse-worker Textract fallback (Beta) | server | ❌ never | 90 days + on compromise |
+| `AWS_REGION` | parse-worker Textract fallback (Beta) | server | ⚠️ not a secret, but env-specific | on region change |
+| `PARSE_DAILY_SPEND_LIMIT_USD` | `parse` spend kill-switch (Beta) | server | ⚠️ not a secret, but a budget control — treat changes like an ops decision, not a routine config edit | review each time Claude/Textract pricing or beta volume changes |
 | `MS_GRAPH_CLIENT_*` / `_TENANT_ID` | Outlook sync (V1) | server | ❌ never | 180 days |
 | `SNAP_CLIENT_ID` / `_SECRET` | Snap share (V1) | server | ❌ never | 180 days |
 | `SENTRY_DSN` | all | mixed | ⚠️ DSN is low-sensitivity | on compromise |
@@ -51,11 +57,12 @@ select vault.create_secret('<anon key>', 'anon_key');
 select vault.create_secret('<random 32+ chars>', 'cron_secret');
 ```
 
-| Vault name            | What it is                                 | Rotation owner |
-| --------------------- | ------------------------------------------ | -------------- |
-| `notify_function_url` | the function's URL for this environment     | Scott          |
-| `anon_key`            | the project's anon key (public-safe)        | Scott          |
-| `cron_secret`         | the shared secret the handler checks        | Scott          |
+| Vault name                   | What it is                                      | Rotation owner |
+| ---------------------------- | ----------------------------------------------- | -------------- |
+| `notify_function_url`        | notify-scheduler function URL for this env      | Scott          |
+| `parse_worker_function_url`  | parse-worker function URL for this env          | Scott          |
+| `anon_key`                   | the project's anon key (public-safe)            | Scott          |
+| `cron_secret`                | the shared secret both cron handlers check      | Scott          |
 
 The job sends `anon_key` **twice** — once as `apikey` and once as
 `Authorization: Bearer …`. The cloud gateway rejects a request carrying only

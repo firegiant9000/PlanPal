@@ -68,6 +68,10 @@ tags:
     description: Friend codes, connections, requests, and the shared (Friends) view.
   - name: export
     description: Data export (iCal).
+  - name: parse
+    description: Screenshot-to-schedule parsing pipeline (Beta M5). Upload a schedule image and receive extracted calendar events for review.
+  - name: feedback
+    description: In-app user feedback / bug reports (M5 cross-cutting). Triage happens outside this API.
 
 paths:
   # ---------------------------------------------------------------------------
@@ -678,6 +682,131 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   # ---------------------------------------------------------------------------
+  # Parse pipeline (Beta M5)
+  # ---------------------------------------------------------------------------
+  /parse/upload-url:
+    post:
+      tags: [parse]
+      summary: Get a signed URL for uploading a schedule screenshot
+      operationId: createParseUploadUrl
+      description: |
+        Returns a short-lived presigned URL for uploading an image directly to
+        Supabase Storage, plus the resulting storage path. Pass that path to
+        `POST /parse` once the upload completes.
+
+        Rate-limited to 15 jobs per user per 24 hours (shared with `POST /parse`).
+      responses:
+        '200':
+          description: Presigned upload URL and storage path.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseUploadUrlResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/SpendCapped'
+
+  /parse:
+    post:
+      tags: [parse]
+      summary: Enqueue a screenshot parse job
+      operationId: createParseJob
+      description: |
+        Creates and enqueues a parse job for an already-uploaded screenshot.
+        The job runs server-side through four stages: OCR → LLM extraction →
+        normalisation → conflict detection. Poll `GET /parse/{jobId}` for status.
+
+        `storagePath` must be the value returned by `POST /parse/upload-url` and
+        the upload must have completed before calling this endpoint.
+
+        Rate-limited to 15 jobs per user per 24 hours.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParseJobCreate'
+      responses:
+        '201':
+          description: Job enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseJobResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/SpendCapped'
+
+  /parse/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+    get:
+      tags: [parse]
+      summary: Get parse job status
+      operationId: getParseJob
+      description: |
+        Poll for job completion. When `status` is `done`, `eventCount` reflects
+        the number of events the pipeline extracted (may be zero). When `failed`,
+        `errorCode` carries a machine-readable reason.
+      responses:
+        '200':
+          description: Current job state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseJobResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Feedback (M5 cross-cutting)
+  # ---------------------------------------------------------------------------
+  /feedback:
+    post:
+      tags: [feedback]
+      summary: Submit in-app feedback
+      operationId: createFeedback
+      description: |
+        Records a feedback message from the signed-in user, with optional
+        client-supplied context (e.g. `{"screen": "calendar", "appVersion":
+        "1.2.0"}`). Triage happens outside this API.
+
+        Rate-limited to 20 submissions per user per 24 hours.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreate'
+      responses:
+        '201':
+          description: Feedback recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  # ---------------------------------------------------------------------------
   # Export
   # ---------------------------------------------------------------------------
   /export/ical:
@@ -839,6 +968,25 @@ components:
           example:
             ok: false
             error: { code: RATE_LIMITED, message: Too many requests. Try again later. }
+    SpendCapped:
+      description: |
+        The screenshot-parse pipeline's trailing-24h Claude spend has crossed
+        the configured budget threshold (M5 cross-cutting: cost monitoring &
+        budget alerts). New parse jobs are refused with code
+        `SERVICE_UNAVAILABLE` until spend outside the trailing window brings
+        the total back under the threshold — there is no separate reset
+        action to take. Distinct from the `ServiceUnavailable` response used
+        by `/healthz`, which reports an unhealthy dependency rather than a
+        deliberate, expected pause.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            ok: false
+            error:
+              code: SERVICE_UNAVAILABLE
+              message: Screenshot scanning is temporarily paused due to high demand. Please try again later.
 
   schemas:
     # --- Scalars (branded in @planpal/types) --------------------------------
@@ -896,6 +1044,7 @@ components:
         - METHOD_NOT_ALLOWED
         - RATE_LIMITED
         - INTERNAL_ERROR
+        - SERVICE_UNAVAILABLE
 
     ApiError:
       type: object
@@ -1405,6 +1554,114 @@ components:
             smoke check assert that the build it just deployed is the build
             that answered.
           example: 4f1c2b9e6a0d8f3c5b7e1a9d2c4f6b8e0a3d5c7f
+
+    # --- Parse pipeline (Beta M5) -------------------------------------------
+    ParseJobStatus:
+      type: string
+      enum: [queued, processing, done, failed]
+      description: |
+        Lifecycle of a screenshot parse job.
+        `queued` → `processing` → `done` | `failed`.
+
+    ParseUploadUrl:
+      type: object
+      required: [uploadUrl, storagePath, expiresAt]
+      properties:
+        uploadUrl:
+          type: string
+          format: uri
+          description: |
+            Signed PUT URL for direct upload to Supabase Storage. Valid for 60
+            seconds. Upload the image binary as the request body with the correct
+            Content-Type header (image/jpeg, image/png, or image/webp).
+        storagePath:
+          type: string
+          description: |
+            Storage path (e.g. screenshots/<userId>/<uuid>) to pass as
+            `storagePath` in `POST /parse` once the upload succeeds.
+        expiresAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    ParseJobCreate:
+      type: object
+      required: [storagePath]
+      additionalProperties: false
+      properties:
+        storagePath:
+          type: string
+          description: Storage path returned by `POST /parse/upload-url`.
+
+    ParseJob:
+      type: object
+      required: [jobId, status, createdAt, updatedAt]
+      properties:
+        jobId:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/ParseJobStatus'
+        eventCount:
+          type: [integer, 'null']
+          description: |
+            Number of calendar events the pipeline extracted. Null until
+            `status` is `done`. May be zero if the image contained no events.
+        errorCode:
+          type: [string, 'null']
+          description: |
+            Machine-readable failure reason (e.g. `OCR_LOW_CONFIDENCE`,
+            `LLM_EXTRACTION_FAILED`). Null unless `status` is `failed`.
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    ParseUploadUrlResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/ParseUploadUrl' }
+
+    ParseJobResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/ParseJob' }
+
+    FeedbackCreate:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        context:
+          type: object
+          description: |
+            Optional client-supplied diagnostic context (e.g. current screen,
+            app version). Stored as-is; not validated beyond being a JSON object.
+          additionalProperties:
+            type: string
+
+    Feedback:
+      type: object
+      required: [id, message, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        message:
+          type: string
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    FeedbackResult:
+      type: object
+      required: [ok, data]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/Feedback' }
 
     # --- Success envelopes (ApiResult<T>) -----------------------------------
     EmptyResult:

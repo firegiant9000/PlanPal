@@ -66,6 +66,31 @@ revoke all on function public.on_user_birthday_change() from anon;
 revoke all on function public.on_user_birthday_change() from authenticated;
 
 -- ---------------------------------------------------------------------------
+-- Revoke execute on Supabase-provisioned SECURITY DEFINER functions that
+-- would otherwise trip the §15 audit below.
+--
+-- rls_auto_enable() is created by the Supabase platform (owned by postgres)
+-- in cloud projects but is absent from the local stack. It is invoked
+-- exclusively from a DDL event trigger; PostgreSQL does not check EXECUTE
+-- privilege for event trigger dispatch, so revoking from end-user roles is
+-- safe and has no effect on trigger firing. The conditional block prevents
+-- a "function does not exist" error during local pnpm db:reset.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'rls_auto_enable'
+  ) then
+    revoke all on function public.rls_auto_enable() from public;
+    revoke all on function public.rls_auto_enable() from anon;
+    revoke all on function public.rls_auto_enable() from authenticated;
+  end if;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Enforce the rule mechanically, not by convention.
 --
 -- §15 of IMPLEMENTATION_PLAN.md: "Every SECURITY DEFINER function ships with

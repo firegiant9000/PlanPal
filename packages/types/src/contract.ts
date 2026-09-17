@@ -43,5 +43,15 @@ export type FriendRequest = Schemas['FriendRequest'];
 export type FriendRequestCreate = Schemas['FriendRequestCreate'];
 export type ReportCreate = Schemas['ReportCreate'];
 
+// Parse pipeline (Beta M5)
+export type ParseJobStatus = Schemas['ParseJobStatus'];
+export type ParseUploadUrl = Schemas['ParseUploadUrl'];
+export type ParseJobCreate = Schemas['ParseJobCreate'];
+export type ParseJob = Schemas['ParseJob'];
+
+// Feedback (M5 cross-cutting)
+export type FeedbackCreate = Schemas['FeedbackCreate'];
+export type Feedback = Schemas['Feedback'];
+
 /** The full generated `paths` + `components` trees, for advanced/typed-client use. */
 export type { paths, components } from './generated/openapi';

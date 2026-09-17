@@ -156,6 +156,41 @@ export type Database = {
           },
         ]
       }
+      feedback: {
+        Row: {
+          context: Json | null
+          created_at: string
+          id: string
+          message: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          context?: Json | null
+          created_at?: string
+          id?: string
+          message: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          context?: Json | null
+          created_at?: string
+          id?: string
+          message?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feedback_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       friend_codes: {
         Row: {
           code: string
@@ -307,6 +342,97 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "devices"
             referencedColumns: ["expo_push_token"]
+          },
+        ]
+      }
+      parse_jobs: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          event_count: number | null
+          extracted_events: Json | null
+          id: string
+          normalised_events: Json | null
+          ocr_provider: string | null
+          ocr_text: string | null
+          retry_count: number
+          status: string
+          storage_path: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          event_count?: number | null
+          extracted_events?: Json | null
+          id?: string
+          normalised_events?: Json | null
+          ocr_provider?: string | null
+          ocr_text?: string | null
+          retry_count?: number
+          status?: string
+          storage_path: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          event_count?: number | null
+          extracted_events?: Json | null
+          id?: string
+          normalised_events?: Json | null
+          ocr_provider?: string | null
+          ocr_text?: string | null
+          retry_count?: number
+          status?: string
+          storage_path?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parse_jobs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parse_spend_ledger: {
+        Row: {
+          cost_usd: number
+          created_at: string
+          id: string
+          job_id: string
+          provider: string
+          stage: string
+        }
+        Insert: {
+          cost_usd: number
+          created_at?: string
+          id?: string
+          job_id: string
+          provider: string
+          stage: string
+        }
+        Update: {
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          job_id?: string
+          provider?: string
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parse_spend_ledger_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "parse_jobs"
+            referencedColumns: ["id"]
           },
         ]
       }
