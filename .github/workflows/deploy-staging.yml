@@ -1,8 +1,14 @@
 # Phase 3 — staging auto-deploy on merge to main.
 #
-# Promotes a merged commit to the STAGING environment: applies DB migrations,
-# deploys the Edge Functions, proves the result is actually alive, then deploys
-# the web app.
+# Promotes a merged commit's BACKEND to the STAGING environment: applies DB
+# migrations, deploys the Edge Functions, and proves the result is actually
+# alive and is the build this run deployed.
+#
+# The web app is deliberately NOT deployed here. Vercel's GitHub integration
+# owns it — production on merge to main, a preview per pull request — and it is
+# what posts the Vercel commit status. This workflow used to deploy it a second
+# time through the Vercel CLI, which was redundant when it worked and failing
+# when it did not.
 #
 # WHY THE `configured` GATE: the cloud accounts are provisioned by hand (see
 # docs/ENVIRONMENTS.md), so until the secrets exist this workflow deliberately
@@ -17,7 +23,6 @@
 #   SUPABASE_STAGING_PROJECT_REF   ref of the planpal-staging project
 #   SUPABASE_STAGING_DB_PASSWORD   staging Postgres password (for db push)
 #   SUPABASE_STAGING_ANON_KEY      staging anon key (for the /healthz check)
-#   VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID   web deploy (if using Vercel)
 name: deploy-staging
 
 on:
@@ -124,37 +129,3 @@ jobs:
             echo "::error::/healthz reported a different build than this run deployed (expected version ${GITHUB_SHA}). The deploy did not take effect, or PLANPAL_VERSION was not stamped."
             exit 1
           fi
-
-  deploy-web:
-    runs-on: ubuntu-latest
-    needs: supabase
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build web
-        run: pnpm --filter @planpal/web build
-
-      - name: Deploy web to Vercel (staging)
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::notice::VERCEL_TOKEN not set — skipping web deploy. Wire a host per docs/ENVIRONMENTS.md."
-            exit 0
-          fi
-          npx --yes vercel@latest pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          npx --yes vercel@latest build --token="$VERCEL_TOKEN"
-          npx --yes vercel@latest deploy --prebuilt --token="$VERCEL_TOKEN"

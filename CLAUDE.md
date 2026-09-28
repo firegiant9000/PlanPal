@@ -137,6 +137,9 @@ the unsaveable edit form, and a swallowed conflict`. Never `feat:`/`chore:`.
 - Green before merge: `ci.yml` (lint, typecheck, test, build, Expo pin check,
   recurrence mirror, Edge Function lint + typecheck, integration suite) and
   `contract.yml` (OpenAPI valid, generated types not drifted).
-- `deploy-staging.yml` runs on merge to `main`, but only acts when the
-  `staging` environment secrets are set; without them it skips with a notice
-  and stays green.
+- `deploy-staging.yml` deploys the **backend only** — migrations, Edge
+  Functions, and a `/healthz` check that the deployed build is the one this run
+  pushed. It runs on merge to `main` but only acts when the `staging`
+  environment secrets are set; without them it skips with a notice and stays
+  green. The web app is deployed by Vercel's GitHub integration, not by a
+  workflow.
