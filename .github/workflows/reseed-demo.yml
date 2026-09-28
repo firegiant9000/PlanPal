@@ -64,12 +64,21 @@ jobs:
           # failure this workflow exists to prevent, so assert the outcome
           # rather than the exit code.
           #
-          # Parsed as JSON rather than grepped. `supabase db query` wraps its
-          # result in an envelope carrying a RANDOM hex `boundary`, and a
-          # substring match for an isolated "0" hits that boundary roughly a
-          # quarter of the time — e.g. boundary "5ca0ea23..." contains "a0e",
-          # which would report an empty calendar while the real count was 5.
-          npx --yes supabase@2.117.0 db query --linked --output-format json \
+          # Parsed as JSON rather than grepped, and with `--agent no` pinned.
+          #
+          # The CLI changes its JSON output depending on whether it thinks an
+          # AI agent is driving it. In agent mode it wraps rows in an envelope
+          # — { boundary, rows, warning } — with a RANDOM hex boundary; outside
+          # it, it prints a bare array. This check was written against the
+          # envelope (it was authored from an agent session), so on the runner,
+          # which gets the bare array, `.rows` was undefined and it failed every
+          # night while the reseed itself was succeeding. Pinning the mode makes
+          # the output the same wherever this runs; accepting both shapes means
+          # a future change of default cannot quietly break it again.
+          #
+          # (The envelope's boundary is also why this is not a grep: a substring
+          # match for an isolated "0" would hit a boundary like "5ca0ea23...".)
+          npx --yes supabase@2.117.0 db query --linked --agent no --output-format json \
             "select count(*)::int as n from public.events \
              where owner_id='33333333-3333-3333-3333-333333333333' \
                and local_start >= date_trunc('week', now())::timestamp \
@@ -77,8 +86,17 @@ jobs:
             > count.json
           node -e '
             const fs = require("fs");
-            const n = JSON.parse(fs.readFileSync("count.json", "utf8")).rows?.[0]?.n;
+            const raw = fs.readFileSync("count.json", "utf8");
+            const parsed = JSON.parse(raw);
+            const rows = Array.isArray(parsed) ? parsed : parsed?.rows;
+            const n = rows?.[0]?.n;
             console.log("events in the current week:", n);
+            if (!Array.isArray(rows)) {
+              // An unrecognised shape is a broken check, not an empty calendar
+              // — say so, rather than blaming the data.
+              console.log("::error::Could not read a row count from `supabase db query` output: " + raw.slice(0, 300));
+              process.exit(1);
+            }
             if (!Number.isInteger(n) || n === 0) {
               console.log("::error::The demo calendar is empty for the current week after reseeding.");
               process.exit(1);
