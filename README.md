@@ -3,7 +3,7 @@
 A calendar app with a one-way social sharing layer — share what you're busy
 with, at the granularity you choose, without handing over your whole calendar.
 
-**[▶ Try the live demo](https://REPLACE_WITH_DEMO_URL.invalid)** — one click, no registration.
+**[▶ Try the live demo](https://planpal-iota.vercel.app)** — one click, no registration.
 Signs in as `demo@planpal.app` / `planpal-demo` with sample data.
 
 [![ci](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml/badge.svg)](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml)
@@ -165,6 +165,18 @@ supabase/migrations     schema, RLS policies
 More: [architecture and runbook](docs/BOOTSTRAP.md) ·
 [environments](docs/ENVIRONMENTS.md) · [test strategy](docs/TESTING.md) ·
 [metrics](docs/METRICS.md) · [planning archive](docs/planning)
+
+## Who built it
+
+Two people. [Arlo Kharod](https://github.com/firegiant9000) set up the
+monorepo and the OpenAPI contract, and wrote most of the schema, RLS policies
+and their tests, the Edge Functions, the web and mobile apps, CI, and the
+deploy and demo pipelines. [Scott Williams](https://github.com/Scottw985)
+delivered the Month 2 milestone (the first recurrence engine, backend APIs
+and mobile calendar), the Month 5 screenshot-parse pipeline and feedback
+feature, and reviewed and merged pull requests. The planning archive in
+[docs/planning](docs/planning) records the intended split, month by month;
+`git log` records what actually landed.
 
 ## Licence
 
