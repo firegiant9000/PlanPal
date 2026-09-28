@@ -1,0 +1,17 @@
+# Canonical identities for `git log`, `git shortlog` and GitHub's contributors
+# graph. Two people have committed here under five name/email pairs, which makes
+# `git shortlog -sn` read as five contributors.
+#
+# This is a DISPLAY mapping only. GitHub links a commit to a profile by the
+# author email alone and does not consult this file for that, so commits
+# authored as arlo@adaptivesoftwarellc.com still show against the GitHub account
+# that owns that address. Fixing that for a given commit means authoring it with
+# an address verified on the intended account — hence the canonical form below,
+# which is firegiant9000's no-reply address.
+
+Arlo Kharod <42082766+firegiant9000@users.noreply.github.com> <arlo@adaptivesoftwarellc.com>
+Arlo Kharod <42082766+firegiant9000@users.noreply.github.com> <arlo.kharod@gmail.com>
+Arlo Kharod <42082766+firegiant9000@users.noreply.github.com> ArloK <42082766+firegiant9000@users.noreply.github.com>
+Arlo Kharod <42082766+firegiant9000@users.noreply.github.com> firegiant9000 <arlo.kharod@gmail.com>
+
+Scott Williams <scottnwilliams985@gmail.com> Scottw985 <scottnwilliams985@gmail.com>

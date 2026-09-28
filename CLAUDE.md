@@ -42,7 +42,7 @@ and buries your change. Format only what you touched:
 - `packages/calendar-core/` — date/grid logic shared by both apps
 - `packages/ui/`, `packages/design-tokens/` — component contracts + primitives
 - `packages/analytics/` — typed KPI event contracts
-- `supabase/functions/` — the API: 7 Edge Functions (`events`, `occurrences`, `export`, `friend-code`, `me`, `healthz`, `notify-scheduler`) plus `_shared`
+- `supabase/functions/` — the API: 10 Edge Functions (`events`, `occurrences`, `export`, `friend-code`, `me`, `healthz`, `notify-scheduler`, `parse`, `parse-worker`, `feedback`) plus `_shared`
 - `supabase/migrations/` — forward-only schema + RLS policies
 
 **Do not hand-edit** `packages/types/src/generated/` — regenerate with
