@@ -28,6 +28,11 @@ supabase/.branches/
 supabase/.temp/
 supabase/.env
 
+# Vercel CLI. `vercel link` writes project.json here with the org and project
+# IDs; those are deploy targets, not secrets, but they are per-developer local
+# state and this repository is meant to be published.
+.vercel/
+
 # Logs
 *.log
 npm-debug.log*
