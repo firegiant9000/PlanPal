@@ -127,7 +127,7 @@ jobs:
       - name: Function secrets for the local stack
         run: echo CRON_SECRET=test-cron-secret > supabase/functions/.env
 
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: 2.117.0
 
