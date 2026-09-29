@@ -65,13 +65,16 @@ Things in here I'd point at in a code review:
   commit SHA into the deployed functions, then requires `/healthz` to return
   200, `"status":"ok"`, _and_ that exact version — because a no-op functions
   deploy otherwise leaves the previous build answering healthily.
-- **Row-level security on every table in `public`, with the one exception made
-  explicit.** All seven have `rowsecurity` on. Six carry explicit policies;
-  `notification_sends` is scheduler bookkeeping and deliberately has _none_,
-  which denies every role that cannot bypass RLS. A test asserts that
-  distinction both ways, so adding a policy there fails the build — see
+- **Row-level security on every table in `public`, with the exceptions made
+  explicit.** All ten tables have `rowsecurity` on. Eight carry explicit
+  policies; `notification_sends` and `parse_spend_ledger` are bookkeeping and
+  deliberately have _none_, which denies every role that cannot bypass RLS. A
+  test asserts that distinction both ways for the tables it covers, so adding
+  a policy there fails the build — see
   [`grants.test.ts`](supabase/tests/src) and
-  [`core_schema.sql`](supabase/migrations).
+  [`core_schema.sql`](supabase/migrations). The RLS story is owner-only
+  today; the cross-user proof (friend, stranger, blocked, revoked) is roadmap
+  milestone P2.
 - **Recurrence is a real engine, not a `for` loop.**
   [`packages/recurrence`](packages/recurrence) expands RRULEs with timezone
   handling, per-occurrence overrides, and cancellations. Its suite runs under
@@ -81,9 +84,12 @@ Things in here I'd point at in a code review:
   [`@planpal/design-tokens`](packages/design-tokens) is framework-agnostic
   plain values consumed by both React Native and the DOM, so a spacing change
   lands on both platforms at once.
-- **Timezone correctness is tested as a property.** Events store local
-  wall-clock time plus a timezone id, with UTC derived by trigger — see
-  [`utc-authority.test.ts`](supabase/tests/src).
+- **Timezone correctness is tested against Postgres.** Events store local
+  wall-clock time plus a timezone id, with UTC derived by trigger; a fixed set
+  of (local, zone) pairs including the DST gap and fold is checked against the
+  database — see [`utc-authority.test.ts`](supabase/tests/src). These are
+  hand-written cases, not generated properties; differential property tests
+  against rrule.js are roadmap milestone P3.
 
 ## Status
 
@@ -95,17 +101,24 @@ Honest about where this is. It's an active build, not a finished product.
 | Auth — email/password, session persistence                                                                    | Working                                                                                                                                                                                          |
 | Auth — Google / Apple OAuth                                                                                   | Buttons ship disabled; the PKCE exchange is unimplemented and [documented in-code](apps/web/src/app/auth/callback/page.tsx)                                                                      |
 | API — 10 Deno Edge Functions, JWT-verified                                                                    | Built; linted, type-checked and exercised over HTTP by the integration suite in CI                                                                                                               |
-| Friend connections and shared visibility                                                                      | Schema and API done; no UI yet                                                                                                                                                                   |
+| Friend connections and shared visibility                                                                      | Schema and friend-code endpoints only. The nine friend/share operations in the contract have no implementation, client or UI yet; building them is roadmap milestone P1 (see [docs/roadmap-review-2026-09.md](docs/roadmap-review-2026-09.md)) |
 | AI screenshot import                                                                                          | Pipeline built end to end — upload, OCR, LLM extraction, normalisation, conflict detection, spend ledger — on a cron worker. No UI wired yet                                                     |
 | In-app feedback                                                                                               | API, client and form components built and tested; not yet reachable from either app's navigation                                                                                                 |
 | Push notifications                                                                                            | Scheduler function built; device delivery gated on hardware testing                                                                                                                              |
 | CI — lint, typecheck, test, build, Expo pin check, recurrence mirror, Edge Function checks, integration suite | Running on every PR                                                                                                                                                                              |
-| Contract drift gate                                                                                           | Separate workflow, every PR                                                                                                                                                                      |
+| Contract drift gate                                                                                           | Separate workflow, on every PR that touches the contract, types or generated files, and on every push to `main`                                                                                 |
 | Deploy                                                                                                        | Web via Vercel's GitHub integration — production on merge, a preview per PR. Backend on merge to `main`, _when_ the `staging` environment secrets are set; skips with a notice when they are not |
 
-The demo runs against a disposable Supabase project that is reseeded nightly,
-kept separate from the development project so active migrations can't break
-the link.
+The demo runs against the staging Supabase project, reseeded nightly. It is
+separate from the local development stack, but it is the same project that
+`deploy-staging.yml` migrates on every merge to `main`, so a bad migration
+can reach the demo.
+
+**Direction (2026-09):** PlanPal is a personal calendar and a technical
+showcase, not a launch. The next work is sharing end to end with cross-user
+RLS proof, differential recurrence tests, and an ICS feed. See the 2026-09
+revision at the top of
+[docs/planning/DEVELOPMENT_PLAN.md](docs/planning/DEVELOPMENT_PLAN.md).
 
 ## Running it locally
 

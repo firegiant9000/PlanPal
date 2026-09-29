@@ -10,7 +10,117 @@
 
 ---
 
-## Where we actually are
+## Revision 2026-09-29: finish the core promise
+
+_This revision supersedes the phase gates and the order of Months 5 to 12 below. The month-by-month text is kept as the record, with status tags in R2. Evidence for every decision is in [../roadmap-review-2026-09.md](../roadmap-review-2026-09.md), verified against `main` at `72073af`._
+
+### R1. Decision
+
+PlanPal's README promises "a calendar app with a one-way social sharing layer". Sharing does not exist: nine of the contract's 32 operations have no implementation, no client and no UI, and `events` has an owner-only policy. The next work is **sharing, end to end, proven by cross-user RLS tests against real Postgres in CI**. After that: differential recurrence testing against an independent oracle, and an ICS feed so PlanPal events appear in the calendar Arlo already uses. AI-import UI, calendar-provider sync, launch, beta cohorts and app-store work are deferred or cancelled. The user-count gates ("ten testers", "500 active users") are replaced by evidence gates. This is a personal application and a technical showcase, not a launch.
+
+This repository owns, for the whole portfolio: cross-user RLS isolation tests, contract correctness, recurrence differential testing and calendar interoperability. It takes no observability stack, IaC or load testing.
+
+### R2. Where we actually are (2026-09-29) and status of the plan
+
+| Plan item | Status | Previous goal | Decision and reason | Effect on use | Effect on evidence |
+|---|---|---|---|---|---|
+| M1 foundations | CURRENT (done) | Schema, contract, CI | Done. | n/a | Baseline |
+| M2 recurrence, notifications, mobile UI | CURRENT (done) | Engine, `/events`, `/occurrences`, scheduler | Merged; push delivery to a device unproven. | n/a | Baseline |
+| M3, M4 auth, calendar UI, stabilisation | CURRENT (done) | Web and mobile calendar, auth | Merged (PR #3). OAuth buttons DEFERRED; mobile edit/delete OPTIONAL. | n/a | Baseline |
+| M5 AI import pipeline (backend) | CURRENT (done, no UI) | Screenshot → events | Backend and cron worker merged. | Low | Baseline |
+| M5 upload UX, privacy notice wiring, cost monitoring UI, feedback nav | DEFERRED | Beta UI | Not before P1 to P3. | Low | None |
+| M6 review UI | DEFERRED | AI review screen | Same. | Low | None |
+| M6 add-friend flow, friend graph API, `reports` table | SUPERSEDED by P1 / CANCELLED (`reportUser`) | Social layer | P1 implements requests, accept, decline, remove, block as SECURITY DEFINER RPCs; `reportUser` is removed from the contract. | High | Core |
+| M7 friends view, selective sharing, first SECURITY DEFINER RPC | SUPERSEDED by P1 | Friend occurrences | Same. | High | Core |
+| M7 iCal export | CURRENT (done, no VTIMEZONE) | Export | Hardening moves to P4. | Medium | Some |
+| M8 privacy QA with zero leakage | SUPERSEDED by P2 | Zero leakage | Becomes the acceptance criterion of P2, run in CI against real Postgres. | High | Core |
+| M9 standards-compliant iCal, shareable link → .ics | SUPERSEDED by P4 | Interop | Becomes the subscribable feed with VTIMEZONE and ICS import. | High (daily use) | Some |
+| M10 Google/Outlook one-way push | CANCELLED unless P4 proves insufficient in real use | Sync | OAuth and conflict scope with no evidence value; the feed covers the need. | Medium | None |
+| M11 scheduler rewrite | CANCELLED | Notification scale | One user. | None | None |
+| M12 public launch, app stores | CANCELLED | Launch | Not a commercial project. | None | None |
+| Post-V1 bidirectional sync, plugins | CANCELLED | Growth | No evidence. | None | None |
+| Post-V1 THIS_AND_FOLLOWING edit scope | DEFERRED to P3 | Edit semantics | Decided by the differential test results; documented if not built. | Medium | Some |
+| Phase gates (≥10 users, ≥4-week beta, 500 active) | SUPERSEDED | Launch discipline | Replaced by evidence gates in R3. | n/a | n/a |
+| GATE_EVIDENCE criteria 3 (push) and 4 (14-day dogfood) | OPTIONAL / CURRENT | Device proof, dogfood | Push stays optional; the 14-day dogfood becomes P4's acceptance. | High | Personal-use evidence |
+| GATE_EVIDENCE criterion 7 (backups) | CURRENT | Restore rehearsal | Redo once with populated tables after P1 lands; keep the two findings open until then. | Medium | Small |
+
+### R3. Milestones
+
+Order is fixed. Each has an acceptance criterion, an artifact, a resume bullet with placeholders that stay empty until the work is done, and interview questions.
+
+#### P0. Close the `friend_connections` policy hole
+
+Before any feature work: the insert policy lets a user insert an `accepted` row for any addressee and the update policy lets either party change `status` (`core_schema.sql:374-386`); combined with `users_select_self_or_friends`, that exposes another user's row today. Write the failing test (Alice inserts an accepted row naming Bob and reads Bob's `users` row), revoke direct `insert`/`update`/`delete` on `friend_connections` from `authenticated`, and leave the table writable only through the P1 RPCs. Ship the revoke immediately; it breaks nothing because no client writes the table.
+
+#### P1. Real sharing
+
+Implement the minimum: friend request, accept, decline, remove, block, and shared-event visibility. Use **SECURITY DEFINER RPCs** only where RLS alone cannot express the rule (writes to `friend_connections`, and the friend-occurrence read that must redact); everything else stays plain RLS. Every RPC has EXECUTE revoked from `public` and `anon`, granted to `authenticated`, and is listed in the `grants.test.ts` allowlist. **Server-side redaction**: `sensitive_public` events return busy/free only, from the RPC, never from the client. Unfriend and block remove visibility immediately (the RPC derives visibility from the current connection row; `shared_with` is cleaned on unfriend and block). One web screen for friends and a friend's calendar; mobile only if it costs nothing. Then make the contract describe reality: delete `reportUser`; implement the other eight; fix `info.license` to MIT; add a description that `notify-scheduler` and `parse-worker` are cron-only.
+
+**Acceptance.** All eight friend operations respond over HTTP in the integration suite; the contract has zero operations without an implementation and zero implementations without a contract entry (a test enumerates both); the license field is MIT; `grants.test.ts` covers all ten tables and every RPC.
+
+**Evidence produced.** The RPC migrations, the integration tests, the contract diff.
+
+**Resume potential.** "Implemented one-way calendar sharing in PlanPal through PostgreSQL SECURITY DEFINER RPCs with server-side redaction and row-level security, replacing direct table grants; brought the OpenAPI contract to zero unimplemented operations with a CI test that enumerates both directions."
+
+**Interview questions.**
+- When is SECURITY DEFINER justified, and what did you do to keep it from becoming a bypass?
+- Why redact on the server when the client already knows the event is sensitive?
+- How does a revoked friend lose access immediately without a cleanup job?
+- What did the contract-vs-implementation test catch?
+
+#### P2. Cross-user RLS proof
+
+Integration tests against the real local Supabase stack in CI (the existing `integration` job), using real JWTs for at least four users. Prove: a friend can see a shared event; a friend cannot see a private event; a friend sees only busy/free for a `sensitive_public` event; a stranger sees nothing; a blocked user sees nothing; a revoked friend immediately loses access; `shared_select` is honoured for listed friends only; direct table access to `friend_connections` is denied for every role that is not `service_role`.
+
+**Acceptance.** All eight scenarios pass in CI against real Postgres; `GATE_EVIDENCE.md` criterion 6 ("zero leakage") is closed with the run link; `docs/security/rls-isolation.md` lists each scenario with its test name.
+
+**Evidence produced.** The isolation suite and the evidence document.
+
+**Resume potential.** "Proved cross-user isolation for PlanPal's sharing layer with [N] integration tests against real PostgreSQL row-level security in CI: friend, stranger, blocked and revoked principals against shared, private and redacted events, zero leakage."
+
+**Interview questions.**
+- Walk me through a cross-user read under RLS: which policy fires, in what role, with what `auth.uid()`.
+- How do you test RLS with real JWTs rather than the service role?
+- What is the difference between a policy that returns no rows and one that raises?
+
+#### P3. Recurrence correctness by differential testing
+
+Add `fast-check` and `rrule` (rrule.js) as dev dependencies of `packages/recurrence` only. Generators over the supported subset: FREQ, INTERVAL, BYDAY with ordinals, BYMONTHDAY, BYMONTH, BYSETPOS, WKST, COUNT/UNTIL; DTSTART within seven days of each DST transition in at least six IANA zones (including a southern-hemisphere zone and one with a historical offset change), leap years, month-end dates. Compare 180-day expansions against rrule.js. Classify every counterexample: engine bug (fix), oracle bug (document), or **deliberate semantic difference** (document in `packages/recurrence/README.md` with the rule and the reason). Known candidate: the 29th-to-31st clamp versus RFC 5545 skip; decide it. Add "this and following" if the differential results make it cheap; otherwise document the deferral. Add a property that engine and Postgres agree on per-occurrence UTC except in the documented fold hour. Fix the stale "Supported now" list in the package README. Do not claim RFC 5545 compliance where behaviour intentionally differs.
+
+**Acceptance.** Zero unclassified counterexamples at a stated case count; each divergence class documented as a decision; the README's "tested as a property" claim becomes true; the mirror-drift gate still passes.
+
+**Evidence produced.** The property tests with case counts, the divergence document.
+
+**Resume potential.** "Differential-tested PlanPal's hand-written recurrence engine against rrule.js with [N] fast-check-generated rules across DST transitions in [Z] time zones; found [K] divergence classes, fixed [F] and documented [D] as deliberate semantics."
+
+**Interview questions.**
+- Why an independent oracle rather than more hand-written cases?
+- What happens on the DST fold, and why do the engine and Postgres disagree by an hour?
+- Clamp or skip on the 31st, and why?
+- How did shrinking help you understand a failing rule?
+
+#### P4. Personal usefulness: the calendar Arlo already uses
+
+A **subscribable ICS feed** (a per-user tokenised URL, revocable, `webcal://`-compatible) with **VTIMEZONE** components generated for every TZID used, so Google Calendar and Outlook import correctly; verify the import in both once and record it (closes `TESTING.md` E4). **ICS import** for the subset the engine supports, with a round-trip property (export → import → export equal). Then use it: PlanPal as the source of truth for personal events for 14 days, subscribed from the primary calendar (GATE_EVIDENCE criterion 4, re-scoped to one user).
+
+**Acceptance.** The feed renders in Google Calendar and Outlook with correct local times across a DST boundary; the import round-trip property passes; the 14-day dogfood is recorded with a gap list.
+
+**Evidence produced.** Import screenshots, the round-trip test, the dogfood record.
+
+**Resume potential.** "Made PlanPal a daily-use calendar by adding a tokenised ICS feed with generated VTIMEZONE components and ICS import with a round-trip property; verified DST-correct import in Google Calendar and Outlook."
+
+**Interview questions.**
+- Why does an ICS feed need VTIMEZONE when the events carry a TZID?
+- How do you revoke a feed URL without breaking the subscriber's other feeds?
+- What did two weeks of real use change in the roadmap?
+
+### R4. Do not do (2026-09 revision)
+
+Google or Outlook two-way sync, OAuth sign-in, AI-import UI, scheduler rewrite, launch or app-store work, beta cohorts, plugins, offline editing, abuse reporting, any observability stack, IaC or load testing.
+
+---
+
+## Where we actually are — SUPERSEDED 2026-09-29 (see R2; this table was already stale on 2026-09-01)
 
 | Month                                  | Plan status         | Reality                                                                                                                                                                                                                                     |
 | -------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
