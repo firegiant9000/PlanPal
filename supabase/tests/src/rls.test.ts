@@ -39,13 +39,43 @@ async function selectAs(
   return { status: res.status, rows };
 }
 
+/** Write to a table as a signed-in end user, through PostgREST. */
+async function writeAs(
+  user: TestUser,
+  method: 'POST' | 'PATCH' | 'DELETE',
+  table: string,
+  params = '',
+  body?: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
+    method,
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${user.accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  return { status: res.status, body: parsed };
+}
+
 let alice: TestUser;
 let bob: TestUser;
+let carol: TestUser;
 let bobEventId: string;
 
 beforeAll(async () => {
   alice = await createTestUser('rls-alice');
   bob = await createTestUser('rls-bob');
+  carol = await createTestUser('rls-carol');
 
   // Give Bob a private event, a device and a birthday-derived row, seeded
   // directly so the test does not depend on the API surface it is auditing.
@@ -70,6 +100,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (alice) await deleteTestUser(alice.id);
   if (bob) await deleteTestUser(bob.id);
+  if (carol) await deleteTestUser(carol.id);
 });
 
 describe('events', () => {
@@ -161,6 +192,83 @@ describe('friend_codes', () => {
 
     const { rows } = await selectAs(alice, 'friend_codes', `&user_id=eq.${bob.id}`);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('friend_connections', () => {
+  // The friend graph is read-only to end users. Creating, accepting and
+  // removing connections belongs to the friend-request RPCs (roadmap P1),
+  // which run as definer. A client that could write here directly could
+  // mint an accepted connection to anyone, and users_select_self_or_friends
+  // would then hand it that user's profile row.
+
+  it('Alice cannot create an accepted connection to Bob', async () => {
+    const res = await writeAs(alice, 'POST', 'friend_connections', '', {
+      requester_id: alice.id,
+      addressee_id: bob.id,
+      status: 'accepted',
+      accepted_at: new Date().toISOString(),
+    });
+    expect(res.status).toBe(403);
+    expect((res.body as { code?: string } | null)?.code).toBe('42501');
+
+    const rows = await query(
+      `select 1 from public.friend_connections
+        where least(requester_id, addressee_id) = least($1::uuid, $2::uuid)
+          and greatest(requester_id, addressee_id) = greatest($1::uuid, $2::uuid)`,
+      [alice.id, bob.id],
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("Alice still cannot read Bob's profile row after trying", async () => {
+    const { rows } = await selectAs(alice, 'users', `&id=eq.${bob.id}`);
+    expect(rows).toEqual([]);
+  });
+
+  describe('on a pending request Alice is party to', () => {
+    let connectionId: string;
+
+    beforeAll(async () => {
+      // Seeded directly: there is no end-user path to create one, by design.
+      const rows = await query<{ id: string }>(
+        `insert into public.friend_connections (requester_id, addressee_id, status)
+         values ($1, $2, 'pending')
+         returning id`,
+        [alice.id, carol.id],
+      );
+      connectionId = rows[0]!.id;
+    });
+
+    it('Alice can still read it', async () => {
+      const { rows } = await selectAs(alice, 'friend_connections', `&id=eq.${connectionId}`);
+      expect(rows).toHaveLength(1);
+    });
+
+    it('Alice cannot accept it', async () => {
+      const res = await writeAs(alice, 'PATCH', 'friend_connections', `?id=eq.${connectionId}`, {
+        status: 'accepted',
+      });
+      expect(res.status).toBe(403);
+      expect((res.body as { code?: string } | null)?.code).toBe('42501');
+
+      const [row] = await query<{ status: string }>(
+        `select status from public.friend_connections where id = $1`,
+        [connectionId],
+      );
+      expect(row?.status).toBe('pending');
+    });
+
+    it('Alice cannot delete it', async () => {
+      const res = await writeAs(alice, 'DELETE', 'friend_connections', `?id=eq.${connectionId}`);
+      expect(res.status).toBe(403);
+      expect((res.body as { code?: string } | null)?.code).toBe('42501');
+
+      const rows = await query(`select 1 from public.friend_connections where id = $1`, [
+        connectionId,
+      ]);
+      expect(rows.length).toBe(1);
+    });
   });
 });
 
