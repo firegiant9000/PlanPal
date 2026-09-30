@@ -174,8 +174,9 @@ Recorded so the Beta privacy QA pass does not assume they were covered:
    not exist yet. Anything the apps do today for `sensitive_public` is
    **presentation in the owner's own view**, not enforcement.
    _Correction 2026-09-29:_ the `friend_connections` table and its policies
-   already exist and are directly writable by `authenticated`, so a
-   cross-user test is possible now and should be written first (P0 in
+   already existed and were directly writable by `authenticated`, so a
+   cross-user test was possible. It was written and the writes were closed on
+   2026-09-30 (PR #19; P0 in
    [planning/DEVELOPMENT_PLAN.md](planning/DEVELOPMENT_PLAN.md)). The full
    isolation suite is P2, which also closes criterion 6's leakage half.
 2. **iOS push and TestFlight are Apple-blocked** pending T3. Criterion 3's iOS

@@ -48,9 +48,11 @@ This repository owns, for the whole portfolio: cross-user RLS isolation tests, c
 
 Order is fixed. Each has an acceptance criterion, an artifact, a resume bullet with placeholders that stay empty until the work is done, and interview questions.
 
-#### P0. Close the `friend_connections` policy hole
+#### P0. Make `friend_connections` read-only to clients — DONE 2026-09-30 (PR #19)
 
-Before any feature work: the insert policy lets a user insert an `accepted` row for any addressee and the update policy lets either party change `status` (`core_schema.sql:374-386`); combined with `users_select_self_or_friends`, that exposes another user's row today. Write the failing test (Alice inserts an accepted row naming Bob and reads Bob's `users` row), revoke direct `insert`/`update`/`delete` on `friend_connections` from `authenticated`, and leave the table writable only through the P1 RPCs. Ship the revoke immediately; it breaks nothing because no client writes the table.
+Migration `20260930000001_friend_connections_read_only.sql` revokes `INSERT`, `UPDATE` and `DELETE` on the table from `public`, `anon` and `authenticated`, and drops the three client-write policies so a later grant cannot silently revive them. `SELECT` stays under the party-based policy. Tests in `rls.test.ts` and `grants.test.ts` failed on the previous schema and pass now. No client or Edge Function wrote the table, so nothing broke. The table is now writable only by the P1 RPCs.
+
+Follow-up carried into P1: `users_select_self_or_friends` still exposes the whole `users` row to an accepted friend. It has nothing to act on until P1 creates connections, but P1 must replace it with a narrower friend view that respects `last_active_opt_in`.
 
 #### P1. Real sharing
 
