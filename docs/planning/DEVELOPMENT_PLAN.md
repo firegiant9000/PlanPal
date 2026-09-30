@@ -22,27 +22,27 @@ This repository owns, for the whole portfolio: cross-user RLS isolation tests, c
 
 ### R2. Where we actually are (2026-09-29) and status of the plan
 
-| Plan item | Status | Previous goal | Decision and reason | Effect on use | Effect on evidence |
-|---|---|---|---|---|---|
-| M1 foundations | CURRENT (done) | Schema, contract, CI | Done. | n/a | Baseline |
-| M2 recurrence, notifications, mobile UI | CURRENT (done) | Engine, `/events`, `/occurrences`, scheduler | Merged; push delivery to a device unproven. | n/a | Baseline |
-| M3, M4 auth, calendar UI, stabilisation | CURRENT (done) | Web and mobile calendar, auth | Merged (PR #3). OAuth buttons DEFERRED; mobile edit/delete OPTIONAL. | n/a | Baseline |
-| M5 AI import pipeline (backend) | CURRENT (done, no UI) | Screenshot → events | Backend and cron worker merged. | Low | Baseline |
-| M5 upload UX, privacy notice wiring, cost monitoring UI, feedback nav | DEFERRED | Beta UI | Not before P1 to P3. | Low | None |
-| M6 review UI | DEFERRED | AI review screen | Same. | Low | None |
-| M6 add-friend flow, friend graph API, `reports` table | SUPERSEDED by P1 / CANCELLED (`reportUser`) | Social layer | P1 implements requests, accept, decline, remove, block as SECURITY DEFINER RPCs; `reportUser` is removed from the contract. | High | Core |
-| M7 friends view, selective sharing, first SECURITY DEFINER RPC | SUPERSEDED by P1 | Friend occurrences | Same. | High | Core |
-| M7 iCal export | CURRENT (done, no VTIMEZONE) | Export | Hardening moves to P4. | Medium | Some |
-| M8 privacy QA with zero leakage | SUPERSEDED by P2 | Zero leakage | Becomes the acceptance criterion of P2, run in CI against real Postgres. | High | Core |
-| M9 standards-compliant iCal, shareable link → .ics | SUPERSEDED by P4 | Interop | Becomes the subscribable feed with VTIMEZONE and ICS import. | High (daily use) | Some |
-| M10 Google/Outlook one-way push | CANCELLED unless P4 proves insufficient in real use | Sync | OAuth and conflict scope with no evidence value; the feed covers the need. | Medium | None |
-| M11 scheduler rewrite | CANCELLED | Notification scale | One user. | None | None |
-| M12 public launch, app stores | CANCELLED | Launch | Not a commercial project. | None | None |
-| Post-V1 bidirectional sync, plugins | CANCELLED | Growth | No evidence. | None | None |
-| Post-V1 THIS_AND_FOLLOWING edit scope | DEFERRED to P3 | Edit semantics | Decided by the differential test results; documented if not built. | Medium | Some |
-| Phase gates (≥10 users, ≥4-week beta, 500 active) | SUPERSEDED | Launch discipline | Replaced by evidence gates in R3. | n/a | n/a |
-| GATE_EVIDENCE criteria 3 (push) and 4 (14-day dogfood) | OPTIONAL / CURRENT | Device proof, dogfood | Push stays optional; the 14-day dogfood becomes P4's acceptance. | High | Personal-use evidence |
-| GATE_EVIDENCE criterion 7 (backups) | CURRENT | Restore rehearsal | Redo once with populated tables after P1 lands; keep the two findings open until then. | Medium | Small |
+| Plan item                                                             | Status                                              | Previous goal                                | Decision and reason                                                                                                         | Effect on use    | Effect on evidence    |
+| --------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------- | --------------------- |
+| M1 foundations                                                        | CURRENT (done)                                      | Schema, contract, CI                         | Done.                                                                                                                       | n/a              | Baseline              |
+| M2 recurrence, notifications, mobile UI                               | CURRENT (done)                                      | Engine, `/events`, `/occurrences`, scheduler | Merged; push delivery to a device unproven.                                                                                 | n/a              | Baseline              |
+| M3, M4 auth, calendar UI, stabilisation                               | CURRENT (done)                                      | Web and mobile calendar, auth                | Merged (PR #3). OAuth buttons DEFERRED; mobile edit/delete OPTIONAL.                                                        | n/a              | Baseline              |
+| M5 AI import pipeline (backend)                                       | CURRENT (done, no UI)                               | Screenshot → events                          | Backend and cron worker merged.                                                                                             | Low              | Baseline              |
+| M5 upload UX, privacy notice wiring, cost monitoring UI, feedback nav | DEFERRED                                            | Beta UI                                      | Not before P1 to P3.                                                                                                        | Low              | None                  |
+| M6 review UI                                                          | DEFERRED                                            | AI review screen                             | Same.                                                                                                                       | Low              | None                  |
+| M6 add-friend flow, friend graph API, `reports` table                 | SUPERSEDED by P1 / CANCELLED (`reportUser`)         | Social layer                                 | P1 implements requests, accept, decline, remove, block as SECURITY DEFINER RPCs; `reportUser` is removed from the contract. | High             | Core                  |
+| M7 friends view, selective sharing, first SECURITY DEFINER RPC        | SUPERSEDED by P1                                    | Friend occurrences                           | Same.                                                                                                                       | High             | Core                  |
+| M7 iCal export                                                        | CURRENT (done, no VTIMEZONE)                        | Export                                       | Hardening moves to P4.                                                                                                      | Medium           | Some                  |
+| M8 privacy QA with zero leakage                                       | SUPERSEDED by P2                                    | Zero leakage                                 | Becomes the acceptance criterion of P2, run in CI against real Postgres.                                                    | High             | Core                  |
+| M9 standards-compliant iCal, shareable link → .ics                    | SUPERSEDED by P4                                    | Interop                                      | Becomes the subscribable feed with VTIMEZONE and ICS import.                                                                | High (daily use) | Some                  |
+| M10 Google/Outlook one-way push                                       | CANCELLED unless P4 proves insufficient in real use | Sync                                         | OAuth and conflict scope with no evidence value; the feed covers the need.                                                  | Medium           | None                  |
+| M11 scheduler rewrite                                                 | CANCELLED                                           | Notification scale                           | One user.                                                                                                                   | None             | None                  |
+| M12 public launch, app stores                                         | CANCELLED                                           | Launch                                       | Not a commercial project.                                                                                                   | None             | None                  |
+| Post-V1 bidirectional sync, plugins                                   | CANCELLED                                           | Growth                                       | No evidence.                                                                                                                | None             | None                  |
+| Post-V1 THIS_AND_FOLLOWING edit scope                                 | DEFERRED to P3                                      | Edit semantics                               | Decided by the differential test results; documented if not built.                                                          | Medium           | Some                  |
+| Phase gates (≥10 users, ≥4-week beta, 500 active)                     | SUPERSEDED                                          | Launch discipline                            | Replaced by evidence gates in R3.                                                                                           | n/a              | n/a                   |
+| GATE_EVIDENCE criteria 3 (push) and 4 (14-day dogfood)                | OPTIONAL / CURRENT                                  | Device proof, dogfood                        | Push stays optional; the 14-day dogfood becomes P4's acceptance.                                                            | High             | Personal-use evidence |
+| GATE_EVIDENCE criterion 7 (backups)                                   | CURRENT                                             | Restore rehearsal                            | Redo once with populated tables after P1 lands; keep the two findings open until then.                                      | Medium           | Small                 |
 
 ### R3. Milestones
 
@@ -63,6 +63,7 @@ Implement the minimum: friend request, accept, decline, remove, block, and share
 **Resume potential.** "Implemented one-way calendar sharing in PlanPal through PostgreSQL SECURITY DEFINER RPCs with server-side redaction and row-level security, replacing direct table grants; brought the OpenAPI contract to zero unimplemented operations with a CI test that enumerates both directions."
 
 **Interview questions.**
+
 - When is SECURITY DEFINER justified, and what did you do to keep it from becoming a bypass?
 - Why redact on the server when the client already knows the event is sensitive?
 - How does a revoked friend lose access immediately without a cleanup job?
@@ -79,6 +80,7 @@ Integration tests against the real local Supabase stack in CI (the existing `int
 **Resume potential.** "Proved cross-user isolation for PlanPal's sharing layer with [N] integration tests against real PostgreSQL row-level security in CI: friend, stranger, blocked and revoked principals against shared, private and redacted events, zero leakage."
 
 **Interview questions.**
+
 - Walk me through a cross-user read under RLS: which policy fires, in what role, with what `auth.uid()`.
 - How do you test RLS with real JWTs rather than the service role?
 - What is the difference between a policy that returns no rows and one that raises?
@@ -94,6 +96,7 @@ Add `fast-check` and `rrule` (rrule.js) as dev dependencies of `packages/recurre
 **Resume potential.** "Differential-tested PlanPal's hand-written recurrence engine against rrule.js with [N] fast-check-generated rules across DST transitions in [Z] time zones; found [K] divergence classes, fixed [F] and documented [D] as deliberate semantics."
 
 **Interview questions.**
+
 - Why an independent oracle rather than more hand-written cases?
 - What happens on the DST fold, and why do the engine and Postgres disagree by an hour?
 - Clamp or skip on the 31st, and why?
@@ -110,6 +113,7 @@ A **subscribable ICS feed** (a per-user tokenised URL, revocable, `webcal://`-co
 **Resume potential.** "Made PlanPal a daily-use calendar by adding a tokenised ICS feed with generated VTIMEZONE components and ICS import with a round-trip property; verified DST-correct import in Google Calendar and Outlook."
 
 **Interview questions.**
+
 - Why does an ICS feed need VTIMEZONE when the events carry a TZID?
 - How do you revoke a feed URL without breaking the subscriber's other feeds?
 - What did two weeks of real use change in the roadmap?
@@ -134,7 +138,7 @@ Google or Outlook two-way sync, OAuth sign-in, AI-import UI, scheduler rewrite, 
 
 ---
 
-## Phase Overview
+## Phase Overview — SUPERSEDED 2026-09-29 (the phase gates are replaced by the evidence gates P0–P4 in R3; per-month statuses are in R2)
 
 | Phase                                    | Months | Weeks | Outcome                                             |
 | ---------------------------------------- | ------ | ----- | --------------------------------------------------- |
@@ -191,7 +195,7 @@ Schema sign-off, migrations applied to dev + staging, three Supabase environment
 
 ---
 
-## Month 2 (Weeks 5–8) — Recurrence + Notifications + Calendar UI begins 🟡
+## Month 2 (Weeks 5–8) — Recurrence + Notifications + Calendar UI begins 🟡 — CURRENT (done, merged; push to a real device OPTIONAL)
 
 **Focus:** Finish the calendar engine, ship the notification service, and start the mobile UI.
 
@@ -222,7 +226,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 3 (Weeks 9–12) — Auth, API surface, and the client foundation ⬅️ RESCOPED
+## Month 3 (Weeks 9–12) — Auth, API surface, and the client foundation ⬅️ RESCOPED — CURRENT (done, merged in PR #3; OAuth DEFERRED)
 
 **Focus:** Connect the apps to the backend for the first time. Auth → API client → service layer is a strict chain; everything else waits on it.
 **Detail:** [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) · [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
@@ -269,7 +273,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 4 (Weeks 13–16) — Spillover, then MVP Testing & Stabilisation ⬅️ RESCOPED
+## Month 4 (Weeks 13–16) — Spillover, then MVP Testing & Stabilisation ⬅️ RESCOPED — CURRENT (engineering merged; the ten-tester gate is SUPERSEDED by P4's one-user dogfood)
 
 **Focus:** Close the two items moved from M3 in weeks 13–14, then no new features: dogfood, bug-bash, hand to 10 real users, clear the gate.
 **Detail:** [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) · [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
@@ -301,7 +305,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-# PHASE 2 — Beta (Months 5–8)
+# PHASE 2 — Beta (Months 5–8) — SUPERSEDED 2026-09-29 (social layer becomes P0–P2; AI-import UI DEFERRED; closed beta CANCELLED)
 
 **Goal:** 50–200 users in closed beta; validate screenshot import + social features with real schedules.
 **Beta exit gate (before app store submission):** privacy QA passes with **zero event-leakage** · parsing hits acceptable accuracy on 5 target formats · closed beta ran ≥4 weeks.
@@ -310,7 +314,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 5 (Weeks 17–20) — Screenshot-to-Schedule Pipeline (B1) + Variable-Schedule (B2)
+## Month 5 (Weeks 17–20) — Screenshot-to-Schedule Pipeline (B1) + Variable-Schedule (B2) — backend CURRENT (done: an Upstash Redis list drained by a pg_cron-triggered Edge worker, not BullMQ); UI DEFERRED
 
 **Focus:** Build the server-side parsing pipeline end to end. Pipeline runs **entirely server-side** (never on-device) so the model can be upgraded without app releases.
 
@@ -342,7 +346,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 6 (Weeks 21–24) — Review/Confirm UI, Friend System (B3) + Shared Calendar (B4) begin
+## Month 6 (Weeks 21–24) — Review/Confirm UI, Friend System (B3) + Shared Calendar (B4) begin — friend system SUPERSEDED by P1; review UI DEFERRED; `reports` CANCELLED
 
 **Focus:** Make parsed events safe to import (explicit approval), and stand up the social graph.
 
@@ -368,7 +372,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 7 (Weeks 25–28) — Shared Calendar View (B4) + Privacy/Visibility (B5)
+## Month 7 (Weeks 25–28) — Shared Calendar View (B4) + Privacy/Visibility (B5) — SUPERSEDED by P1 and P2 (iCal export done; hardening in P4)
 
 **Focus:** Ship the Friends view and the privacy enforcement that gates Beta. **Privacy has zero tolerance for bugs.**
 
@@ -403,7 +407,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 8 (Weeks 29–32) — Beta hardening, privacy QA, closed beta run
+## Month 8 (Weeks 29–32) — Beta hardening, privacy QA, closed beta run — privacy QA SUPERSEDED by P2; closed beta CANCELLED
 
 **Focus:** Run the closed beta ≥4 weeks, pass the security gate, prep for app store submission.
 
@@ -422,7 +426,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-# PHASE 3 — V1 (Months 9–12)
+# PHASE 3 — V1 (Months 9–12) — CANCELLED 2026-09-29 except calendar export, which becomes P4
 
 **Goal:** Public launch on App Store, Google Play, and web with stable calendar export/one-way push + social sharing.
 **Highest-load phase** (40–50 hrs/wk): polish + submission prep run simultaneously.
@@ -436,7 +440,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 9 (Weeks 33–36) — Calendar Export (V1.1) + Social Integrations (V1.2) begin
+## Month 9 (Weeks 33–36) — Calendar Export (V1.1) + Social Integrations (V1.2) begin — export SUPERSEDED by P4; social integrations CANCELLED
 
 **Focus:** Start simple — iCal export first. Kick off external approvals immediately.
 
@@ -459,7 +463,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 10 (Weeks 37–40) — Finish one-way sync, Social Integrations, Polish (V1.3) begins
+## Month 10 (Weeks 37–40) — Finish one-way sync, Social Integrations, Polish (V1.3) begins — CANCELLED (provider sync only if P4 proves insufficient in real use)
 
 ### Scott (backend)
 
@@ -480,7 +484,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 11 (Weeks 41–44) — Platform Polish complete (V1.3) + Launch Sequence begins (V1.4)
+## Month 11 (Weeks 41–44) — Platform Polish complete (V1.3) + Launch Sequence begins (V1.4) — CANCELLED
 
 ### Arlo (frontend)
 
@@ -500,7 +504,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-## Month 12 (Weeks 45–48) — Submission & Public Launch (V1.4)
+## Month 12 (Weeks 45–48) — Submission & Public Launch (V1.4) — CANCELLED
 
 ### Both
 
@@ -519,7 +523,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 
 ---
 
-# PHASE 4 — Post-V1 (Month 13+) — Plugin Foundation & Growth
+# PHASE 4 — Post-V1 (Month 13+) — Plugin Foundation & Growth — CANCELLED 2026-09-29 (THIS_AND_FOLLOWING moves to P3 as DEFERRED)
 
 **Trigger:** Public ≥4 weeks **and** ≥500 active users. Build what users ask for, not what seems cool. Pace TBD; ownership split revisited post-launch. Dates intentionally omitted.
 
