@@ -1,5 +1,7 @@
 # Cross-cutting tasks — implementation plan (M5)
 
+> **Status 2026-09-29: DEFERRED** with the rest of the Month 5 UI (see [planning/DEVELOPMENT_PLAN.md](planning/DEVELOPMENT_PLAN.md) R2). Exception: the manual Anthropic console spend alert is cheap insurance and can be set any time; it is OPTIONAL, not blocked.
+
 **Derived from:** [MONTH5.md](MONTH5.md), "Cross-cutting tasks (starting M5)". That section names four
 line items under two headings, owned by "Both"; this doc splits them by what can actually be
 implemented as code versus what is an operational/console action nobody but a human with account
@@ -10,13 +12,13 @@ access can take, then plans the code-native ones.
 
 ## Splitting the section: code vs. ops
 
-| Item | Nature | This plan |
-|---|---|---|
-| Claude API daily spend alert (Anthropic console) | Manual — requires Anthropic console access | Documented as an outstanding action, not implementable here |
-| Monthly infra budget line (Supabase/Upstash/Textract) | Manual — a finance/ops budget line, not code | Documented as an outstanding action |
-| **Spend kill-switch** (503 on new jobs above a threshold) | Code | ✅ **Implemented** — see below |
-| **In-app feedback channel** | Code | ✅ **Implemented** (backend + client + form component; not wired into either app's navigation) — see below |
-| Triage SLA for the closed beta | Manual — a process/policy decision | Documented as an outstanding decision |
+| Item                                                      | Nature                                       | This plan                                                                                                  |
+| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Claude API daily spend alert (Anthropic console)          | Manual — requires Anthropic console access   | Documented as an outstanding action, not implementable here                                                |
+| Monthly infra budget line (Supabase/Upstash/Textract)     | Manual — a finance/ops budget line, not code | Documented as an outstanding action                                                                        |
+| **Spend kill-switch** (503 on new jobs above a threshold) | Code                                         | ✅ **Implemented** — see below                                                                             |
+| **In-app feedback channel**                               | Code                                         | ✅ **Implemented** (backend + client + form component; not wired into either app's navigation) — see below |
+| Triage SLA for the closed beta                            | Manual — a process/policy decision           | Documented as an outstanding decision                                                                      |
 
 Three of the five items are not something an agent can "implement" — there is no repository change
 that sets a spend alert in someone else's Anthropic console or writes a budget line into a finance
@@ -67,6 +69,7 @@ access; only the service role (which bypasses RLS) can touch it. Indexed on `cre
 trailing-24h sum.
 
 **`supabase/functions/_shared/spend.ts`** (new)
+
 - `claudeCostUsd(usage)` — pure function, `{input_tokens, output_tokens}` → dollars.
 - `recordClaudeSpend(admin, jobId, stage, usage)` — inserts one ledger row. Non-fatal on error
   (logged and swallowed), the same posture `parse-worker` already takes toward its push
@@ -74,12 +77,14 @@ trailing-24h sum.
 - `isSpendCapped(admin)` — the kill-switch predicate described above.
 
 **`supabase/functions/parse-worker/index.ts`** (modified)
+
 - `runClaudeOcr` and `runExtraction` now return the Anthropic response's `usage` alongside their
   existing results (`usage: null` from `runExtraction` only on its no-Claude-call short circuit,
   when `ocrText` is empty).
 - Both call sites call `recordClaudeSpend` right after the Claude call completes.
 
 **`supabase/functions/parse/index.ts`** (modified)
+
 - Extracted a `makeAdminClient()` helper (previously the service-role client was constructed inline
   only in `handleCreateUploadUrl`); `handleCreateJob` did not have service-role access before and
   now optionally does, solely to read the spend ledger.
@@ -87,6 +92,7 @@ trailing-24h sum.
   `SERVICE_UNAVAILABLE` when tripped.
 
 **`packages/api-contract/openapi.yaml`** (modified)
+
 - Added `SERVICE_UNAVAILABLE` to the `ErrorCode` enum (previously absent — even `/healthz`'s
   existing `ServiceUnavailable` response documented itself as carrying `INTERNAL_ERROR`, not
   `SERVICE_UNAVAILABLE`, so this was a real gap, not a rename).
@@ -134,7 +140,7 @@ MONTH5.md: "In-app feedback channel" + "Triage SLA for the closed beta period."
   rate limit below needs a `count`-by-user query, which is itself a `SELECT`. So the policy set is
   owner-scoped `SELECT` + `INSERT` (mirroring `parse_jobs`'s `for all` pattern, minus `UPDATE`/
   `DELETE`, which end users never get). The privacy goal survives fully: a user can see only their
-  *own* submitted feedback, never anyone else's, and can never edit or delete one after sending it —
+  _own_ submitted feedback, never anyone else's, and can never edit or delete one after sending it —
   triage still only ever happens via the service role, which bypasses RLS.
 - **The response returns the created row**, not `EmptyResult` — `{ id, message, createdAt }` — once
   `SELECT` was already granted for the reasons above, returning nothing would have thrown away

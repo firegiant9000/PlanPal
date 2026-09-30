@@ -26,6 +26,12 @@ work.
 - **Friends** — 8-char codes (rotate, 30-day expiry), requests (mutual consent,
   no directory, rate-limited), connections, block/report, and the
   **server-redacted** Friends view (`GET /friends/{userId}/occurrences`).
+  _Status 2026-09-29:_ only the friend-code get and rotate operations are
+  implemented. The other nine friend operations are declared here with no
+  implementation; P1 in
+  [docs/planning/DEVELOPMENT_PLAN.md](../../docs/planning/DEVELOPMENT_PLAN.md)
+  implements eight and removes `reportUser`, and adds a test that fails on any
+  contract operation without an implementation.
 - **Export** — iCal.
 
 ### Modeling notes (why the wire shape ≠ the DB shape)
@@ -73,9 +79,9 @@ case, with the phase that emits them.
 
 Not designed in Phase 1, to avoid speculative contracts:
 
-- **Screenshot-to-schedule parsing** (Beta M5): upload + parse-job lifecycle + review.
-- **Calendar-export integrations** (V1): Google/Outlook one-way push, shareable links.
-- **Outbound social share** (V1): Instagram / Snapchat / Discord (mostly client-side).
+- **Screenshot-to-schedule parsing** (Beta M5): upload + parse-job lifecycle + review. _Upload and job lifecycle are now in the contract and implemented; review is DEFERRED (2026-09-29)._
+- **Calendar-export integrations** (V1): Google/Outlook one-way push, shareable links. _2026-09-29: provider push is CANCELLED; a tokenised, subscribable ICS feed replaces it (P4)._
+- **Outbound social share** (V1): Instagram / Snapchat / Discord (mostly client-side). _CANCELLED 2026-09-29._
 
 ## Lint & codegen (wired)
 
