@@ -222,6 +222,42 @@ describe('RLS is enabled with policies', () => {
   });
 });
 
+describe('friend_connections is read-only to end users', () => {
+  // The core schema granted authenticated full DML here, guarded only by
+  // party-based policies that did not constrain `status`. Writes belong to the
+  // friend-request RPCs (roadmap P1), which run as definer; until they exist,
+  // no end-user role may write the friend graph at all.
+
+  it('grants authenticated SELECT and nothing else', async () => {
+    const rows = await query<{ grantee: string; privilege_type: string }>(
+      `
+      select grantee, privilege_type
+        from information_schema.role_table_grants
+       where table_schema = 'public'
+         and table_name = 'friend_connections'
+         and grantee in ('PUBLIC', 'anon', 'authenticated')
+       order by 1, 2
+      `,
+    );
+    expect(rows.map((r) => `${r.grantee}:${r.privilege_type}`)).toEqual(['authenticated:SELECT']);
+  });
+
+  it('keeps only the party-scoped select policy', async () => {
+    // The old write policies are inert without grants, but a future grant would
+    // silently bring them back. They were dropped; this keeps them dropped.
+    const rows = await query<{ policyname: string; cmd: string }>(
+      `
+      select policyname, cmd from pg_policies
+       where schemaname = 'public' and tablename = 'friend_connections'
+       order by 1
+      `,
+    );
+    expect(rows.map((r) => `${r.policyname}:${r.cmd}`)).toEqual([
+      'friend_conn_select_party:SELECT',
+    ]);
+  });
+});
+
 describe('service-role-only tables', () => {
   it.each(DENY_ALL_TABLES)('%s has RLS enabled and deliberately no policies', async (table) => {
     const [rls] = await query<{ relrowsecurity: boolean }>(
