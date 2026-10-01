@@ -16,7 +16,7 @@
     "clean": "rimraf .turbo *.tsbuildinfo"
   },
   "devDependencies": {
-    "@redocly/cli": "^1.25.0",
+    "@redocly/cli": "^1.34.20",
     "openapi-typescript": "^7.4.0",
     "rimraf": "^6.0.1"
   }
