@@ -51,8 +51,9 @@ export function PrivacyDisclosure({ mode, onDismiss }: PrivacyDisclosureProps) {
       <Text color="textSecondary" size="sm">
         Screenshots you scan are sent to Anthropic (the Claude AI service) so PlanPal can read the
         schedule in them. If Claude cannot read an image clearly, it is also sent to Amazon
-        Textract. The screenshot, the text read from it and the events found in it are stored with
-        your account. PlanPal does not delete them automatically yet.
+        Textract. The screenshot, the text read from it and the events found in it are stored.
+        There is no way to delete them in the app yet. Deleting your account removes the text and
+        events, but does not yet remove the screenshot images.
       </Text>
       <Button label={mode === 'gate' ? 'I understand, continue' : 'Close'} onPress={onDismiss} />
     </div>

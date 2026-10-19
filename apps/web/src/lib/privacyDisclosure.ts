@@ -3,8 +3,10 @@
  * from Upload UX). Requirement: a persistent notice, visible before the first
  * upload and dismissible-but-re-viewable afterward, that says truthfully what
  * happens to a screenshot: it is sent to Anthropic (Textract as the OCR
- * fallback), and the image, its OCR text and the extracted events are stored
- * with the account. MONTH5.md's original "not retained beyond the parse
+ * fallback), and the image, its OCR text and the extracted events are stored.
+ * There is no in-app delete yet, and deleting the account removes the OCR text
+ * and events but not the images (delete_me() only deletes from auth.users;
+ * storage objects are not removed). MONTH5.md's original "not retained beyond the parse
  * session" was never implemented (nothing purges them), so the notice no
  * longer claims it; a retention purge is part of the parked import work.
  *
@@ -25,7 +27,10 @@ export interface DisclosureStore {
   setItem(key: string, value: string): Promise<void>;
 }
 
-export const DISCLOSURE_STORAGE_KEY = 'planpal.privacyDisclosure.acknowledgedAt.v1';
+// Bump the version whenever the notice's meaning changes, so people who
+// acknowledged an earlier wording see the new one. v1 was the "not retained"
+// wording, which was false.
+export const DISCLOSURE_STORAGE_KEY = 'planpal.privacyDisclosure.acknowledgedAt.v2';
 
 /**
  * Whether this device has ever acknowledged the notice.
