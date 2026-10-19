@@ -115,7 +115,6 @@ describe('seed.demo.sql', () => {
     expect(dates).toContain(plusDays(7 + 4));
   });
 
-
   it('keeps a recurring master with both an override and a cancellation', async () => {
     const rows = await query(
       `select
