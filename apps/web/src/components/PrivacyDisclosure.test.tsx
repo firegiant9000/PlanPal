@@ -9,8 +9,16 @@ describe('PrivacyDisclosure', () => {
   it('states what happens to a scanned screenshot', () => {
     render(<PrivacyDisclosure mode="gate" onDismiss={vi.fn()} />);
 
-    expect(screen.getByText(/third-party AI service/)).toBeInTheDocument();
-    expect(screen.getByText(/not retained/)).toBeInTheDocument();
+    expect(screen.getByText(/sent to Anthropic \(the Claude AI service\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Amazon Textract/)).toBeInTheDocument();
+    expect(screen.getByText(/stored with your account/)).toBeInTheDocument();
+    expect(screen.getByText(/does not delete them automatically yet/)).toBeInTheDocument();
+  });
+
+  it('does not claim screenshots are discarded after the scan', () => {
+    render(<PrivacyDisclosure mode="gate" onDismiss={vi.fn()} />);
+
+    expect(screen.queryByText(/not retained/)).not.toBeInTheDocument();
   });
 
   it('labels the action "continue" in gate mode and calls onDismiss when clicked', () => {

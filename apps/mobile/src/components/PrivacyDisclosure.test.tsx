@@ -5,8 +5,16 @@ describe('PrivacyDisclosure', () => {
   it('states what happens to a scanned screenshot', async () => {
     const { getByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
 
-    expect(getByText(/third-party AI service/)).toBeTruthy();
-    expect(getByText(/not retained/)).toBeTruthy();
+    expect(getByText(/sent to Anthropic \(the Claude AI service\)/)).toBeTruthy();
+    expect(getByText(/Amazon Textract/)).toBeTruthy();
+    expect(getByText(/stored with your account/)).toBeTruthy();
+    expect(getByText(/does not delete them automatically yet/)).toBeTruthy();
+  });
+
+  it('does not claim screenshots are discarded after the scan', async () => {
+    const { queryByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
+
+    expect(queryByText(/not retained/)).toBeNull();
   });
 
   it('labels the action "continue" in gate mode and calls onDismiss when pressed', async () => {

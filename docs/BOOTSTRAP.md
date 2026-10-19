@@ -159,12 +159,12 @@ regardless — it is not evidence of a retained backup. This is consistent with 
 free tier (no automated backups; PITR is a Pro add-on), but **the API does not name
 the tier, so treat "free tier" as inferred rather than confirmed.**
 
-| Environment       | Automated backups                    | PITR        | Manual dump        |
-| ----------------- | ------------------------------------ | ----------- | ------------------ |
-| local             | n/a — recreate with `pnpm db:reset`  | n/a         | n/a                |
-| `planpal-dev`     | **none** (verified 2026-09-08)       | off         | the only option    |
-| `planpal-staging` | not provisioned yet                  | —           | —                  |
-| `planpal-prod`    | **required before external testers** | recommended | insufficient alone |
+| Environment      | Automated backups                     | PITR         | Manual dump        |
+| ---------------- | ------------------------------------- | ------------ | ------------------ |
+| local            | n/a — recreate with `pnpm db:reset`   | n/a          | n/a                |
+| `planpal-dev`    | **none** (verified 2026-09-08)        | off          | the only option    |
+| staging (= demo) | not recorded (provisioned 2026-09-30) | not recorded | —                  |
+| `planpal-prod`   | **required before external testers**  | recommended  | insufficient alone |
 
 **Open item for the Month 4 readiness review (I1):** dev's only backup is a manual
 `supabase db dump`, and the rehearsal below proves that dump is **not** a complete
