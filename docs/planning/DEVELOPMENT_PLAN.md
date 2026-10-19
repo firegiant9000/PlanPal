@@ -28,6 +28,7 @@ This repository owns, for the whole portfolio: cross-user RLS isolation tests, c
 | M2 recurrence, notifications, mobile UI                               | CURRENT (done)                                      | Engine, `/events`, `/occurrences`, scheduler | Merged; push delivery to a device unproven.                                                                                 | n/a              | Baseline              |
 | M3, M4 auth, calendar UI, stabilisation                               | CURRENT (done)                                      | Web and mobile calendar, auth                | Merged (PR #3). OAuth buttons DEFERRED; mobile edit/delete OPTIONAL.                                                        | n/a              | Baseline              |
 | M5 AI import pipeline (backend)                                       | CURRENT (done, no UI)                               | Screenshot → events                          | Backend and cron worker merged.                                                                                             | Low              | Baseline              |
+| Screenshot import (backend), 2026-10-18                               | PARKED until P1 (sharing) is accepted               | Screenshot → events                          | Sharing is the core promise; applied AI is shown elsewhere in the portfolio. Resume criteria below the table.               | Low              | None until resumed    |
 | M5 upload UX, privacy notice wiring, cost monitoring UI, feedback nav | DEFERRED                                            | Beta UI                                      | Not before P1 to P3.                                                                                                        | Low              | None                  |
 | M6 review UI                                                          | DEFERRED                                            | AI review screen                             | Same.                                                                                                                       | Low              | None                  |
 | M6 add-friend flow, friend graph API, `reports` table                 | SUPERSEDED by P1 / CANCELLED (`reportUser`)         | Social layer                                 | P1 implements requests, accept, decline, remove, block as SECURITY DEFINER RPCs; `reportUser` is removed from the contract. | High             | Core                  |
@@ -43,6 +44,16 @@ This repository owns, for the whole portfolio: cross-user RLS isolation tests, c
 | Phase gates (≥10 users, ≥4-week beta, 500 active)                     | SUPERSEDED                                          | Launch discipline                            | Replaced by evidence gates in R3.                                                                                           | n/a              | n/a                   |
 | GATE_EVIDENCE criteria 3 (push) and 4 (14-day dogfood)                | OPTIONAL / CURRENT                                  | Device proof, dogfood                        | Push stays optional; the 14-day dogfood becomes P4's acceptance.                                                            | High             | Personal-use evidence |
 | GATE_EVIDENCE criterion 7 (backups)                                   | CURRENT                                             | Restore rehearsal                            | Redo once with populated tables after P1 lands; keep the two findings open until then.                                      | Medium           | Small                 |
+
+_2026-10-18: screenshot import parked._ Nothing more is built on the `parse` / `parse-worker` pipeline until P1 is accepted. It is about 2–3 weeks of work plus account actions (an estimate, not measured). When it resumes, its acceptance must include:
+
+- a schema-validated model response (no free-form `JSON.parse`);
+- a commit endpoint in the contract, so extracted events become real events only through it;
+- a retention purge for the stored image, `ocr_text` and `extracted_events`, which makes the original M5 privacy promise true (the notice was corrected to say they are kept until then);
+- a spend ledger and rate limit that fail closed;
+- tests and a small eval set of real screenshots.
+
+The Edge Functions are still deployed to staging, which is also the demo project. Whether to turn their kill switch on there until the work resumes is an owner decision.
 
 ### R3. Milestones
 
