@@ -218,7 +218,7 @@ CI was green throughout because `supabase/functions` is not a pnpm workspace and
 ### Arlo (frontend)
 
 - [ ] Upload UX: camera roll / take photo / web file upload; job-progress + completion states.
-- [ ] Privacy disclosure notice (persistent): images sent to third-party AI, not retained beyond parse session. **Required for App Store.** *(2026-10-19: superseded; screenshots are retained and the notice says so — see PR #22 and #24.)*
+- [ ] Privacy disclosure notice (persistent): images sent to third-party AI, not retained beyond parse session. **Required for App Store.** *(2026-10-19: superseded; screenshots are retained and the notice says so — see PR #22 and #25.)*
 
 ### Cross-cutting starting here
 
