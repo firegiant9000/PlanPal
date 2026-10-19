@@ -1,5 +1,7 @@
 # PlanPal — Months 3–4 Execution Plan (Weeks 9–16)
 
+> **Status 2026-09-29: HISTORICAL, merged (PR #3).** The "ten real testers" outcome below is SUPERSEDED by the one-user dogfood in P4 of [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md).
+
 **Derived from:** [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) — _Phase 1 completion_
 **Companion:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — the engineering detail behind every task here
 **Team:** Arlo (frontend) · Scott (backend)

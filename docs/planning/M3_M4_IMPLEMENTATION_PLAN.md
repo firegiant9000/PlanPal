@@ -1,5 +1,7 @@
 # PlanPal — Month 3/4 implementation plan
 
+> **Status 2026-09-29: HISTORICAL, merged.** Open items still valid: task E4 (real Google and Outlook ICS import) moves into P4 of [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). Everything else here is done or superseded by that revision.
+
 **Derived from:** [M3_M4_SPECS_PLAN.md](M3_M4_SPECS_PLAN.md) (the investigation of 2026-09-07). That
 document is the source of truth for _why_; this one is the source of truth for _what to do next_.
 Its recommendations are not re-litigated here — they are turned into tasks.

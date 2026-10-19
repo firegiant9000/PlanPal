@@ -1,5 +1,7 @@
 # PlanPal — Month 3/4 specs plan (investigation of 2026-09-07)
 
+> **Status 2026-09-29: HISTORICAL.** PR #3 has merged; the branch state below is a snapshot. Current plan: [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) revision.
+
 **Branch:** `month3-development`, 25 commits ahead of `main`, PR #3 open and mergeable, four CI checks green.
 **Purpose:** make the remaining Month 3 and Month 4 work executable by someone who was not in the room. Every claim below is labelled as **verified** (I ran it and quote the output) or **hypothesis** (I could not run it, and say why).
 **Companions:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (§ references), [MONTH_3_4_PLAN.md](MONTH_3_4_PLAN.md) (P references), PR #3's body (defect and decision numbering).

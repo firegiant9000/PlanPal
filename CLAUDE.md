@@ -58,10 +58,12 @@ and buries your change. Format only what you touched:
   (`no-restricted-globals`) outside it. This is a lint failure, not a convention.
 - **The OpenAPI contract is the source of truth.** Types are generated from it
   and drift-gated in CI.
-- **RLS is the authority on visibility**, not the client. All seven tables in
-  `public` have row security enabled. Six have explicit policies;
-  `notification_sends` deliberately has none (service-role only), and
-  `grants.test.ts` asserts both that distinction and that no SECURITY DEFINER
+- **RLS is the authority on visibility**, not the client. All ten tables in
+  `public` have row security enabled. Eight have explicit policies;
+  `notification_sends` and `parse_spend_ledger` deliberately have none
+  (service-role only). `grants.test.ts` covers seven tables today (not
+  `parse_jobs`, `parse_spend_ledger` or `feedback`; extending it is part of P1)
+  and asserts that distinction and that no SECURITY DEFINER
   function is executable by `public`/`anon`/`authenticated` bar an allowlisted
   `delete_me()`.
 - **Every new table** must enable RLS and define explicit policies in the same

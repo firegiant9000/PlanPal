@@ -1,13 +1,15 @@
 # Upload UX — implementation plan (M5, Arlo's task)
 
+> **Status 2026-09-29: DEFERRED** until P1 to P3 of [planning/DEVELOPMENT_PLAN.md](planning/DEVELOPMENT_PLAN.md) are done. The plan below is still valid when it resumes.
+
 **Derived from:** [MONTH5.md](MONTH5.md), "Arlo's M5 tasks → Upload UX". That document names the
 three features; this one turns them into files, code, and an order to build them in.
 **Audience:** an engineer who has not seen the parse pipeline before. Every task names its files,
 what it depends on, and what "done" looks like.
-**Scope:** the *Upload UX* line item only — camera roll / take-photo / web file upload, job-progress
+**Scope:** the _Upload UX_ line item only — camera roll / take-photo / web file upload, job-progress
 states, and the completion state. The **Privacy disclosure notice** is a separate MONTH5.md line
 item and is not covered here (it blocks the App Store submission, not this flow, though the
-disclosure copy should render *before* the first picker opens — see Task 6).
+disclosure copy should render _before_ the first picker opens — see Task 6).
 
 ---
 
@@ -17,18 +19,18 @@ Three endpoints, all live (`supabase/functions/parse/index.ts`, `parse-worker/in
 end-to-end through `packages/api-contract/openapi.yaml` → `@planpal/types` → `ParseResource`
 (`packages/api-client/src/resources/parse.ts`):
 
-| Call | Returns |
-|---|---|
-| `planpalClient.parse.getUploadUrl()` | `{ uploadUrl, storagePath, expiresAt }` — signed PUT URL, valid 60s |
+| Call                                           | Returns                                                                            |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `planpalClient.parse.getUploadUrl()`           | `{ uploadUrl, storagePath, expiresAt }` — signed PUT URL, valid 60s                |
 | `planpalClient.parse.enqueue({ storagePath })` | `ParseJob` — `{ jobId, status: 'queued', eventCount: null, errorCode: null, ... }` |
-| `planpalClient.parse.getJob(jobId)` | `ParseJob` — poll until `status` is `done` or `failed` |
+| `planpalClient.parse.getJob(jobId)`            | `ParseJob` — poll until `status` is `done` or `failed`                             |
 
 `ParseJobStatus` is `queued \| processing \| done \| failed`. **Note:** the worker's retry logic
 (Step 7) can move a job from `processing` back to `queued` on a transient failure before it
 eventually reaches `done`/`failed` — the client must treat `queued`/`processing` as one
 "in progress" bucket and not assume monotonic forward progress, or a retry will look like a hang.
 
-**What `GET /parse/{jobId}` does *not* give you:** the extracted events themselves. The worker
+**What `GET /parse/{jobId}` does _not_ give you:** the extracted events themselves. The worker
 never writes to the `events` table and the contract only exposes `eventCount` (an integer) once
 `status: 'done'`. There is no endpoint today that returns event titles/times for a job. That is
 Month 6's "Review UI" work. **Decision (confirmed with the user):** the completion state's "Review"
@@ -95,6 +97,7 @@ export interface ParseResource {
 ```
 
 Implementation notes:
+
 - Plain `fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file })`.
 - On a non-2xx response, throw `mapNonEnvelopeError(res.status, await res.text())` — **not** a new
   error code. `PlanPalApiError.code` is typed as `ApiErrorCode`, the closed union generated from
@@ -104,11 +107,11 @@ Implementation notes:
   502/malformed-JWT body) — it synthesises a contract-legal code from the HTTP status (403→
   `FORBIDDEN`, 429→`RATE_LIMITED`, etc.) so callers still catch one `PlanPalApiError` shape
   everywhere.
-- No retry inside `upload()` — the signed URL expires in 60s and a retry needs a *new* URL, so
+- No retry inside `upload()` — the signed URL expires in 60s and a retry needs a _new_ URL, so
   retry is the caller's job (Task 3 covers requesting a fresh URL and retrying once).
 - `Blob` is the right type for both platforms: React Native's `fetch` accepts a `Blob` from
   `expo-file-system`/`expo-image-picker`'s result, and the DOM `File` from an `<input>` already
-  *is* a `Blob`.
+  _is_ a `Blob`.
 
 **Tests:** `packages/api-client/src/resources/parse.test.ts` (new) — mock `fetch`, assert method,
 URL, header, and body pass-through; assert a 4xx/5xx throws `PlanPalApiError`.
@@ -123,6 +126,7 @@ function so it's unit-testable without a renderer, following the same pattern as
 
 **New file (duplicated per app, same as `Button.tsx`/`Text.tsx` are per-app today — this package
 has no shared non-UI logic layer between mobile and web):**
+
 - `apps/mobile/src/lib/parseJob.ts`
 - `apps/web/src/lib/parseJob.ts`
 
@@ -143,6 +147,7 @@ export const POLL_TIMEOUT_MS = 90_000; // give up and show a "still working" fai
 ```
 
 Two changes from the original sketch, made while implementing:
+
 - **`reason` gained a fifth value, `'timeout'`**, distinct from `'server'`. A job whose own status
   is `failed` and a job that simply hasn't finished in 90s are different situations — Task 3's
   copy map can now tell a user "still working, check back" instead of implying the scan failed.
@@ -171,6 +176,7 @@ uses for `OccurrencesLike` — the module stays free of `@planpal/api-client` an
 it.
 
 Behavior implemented:
+
 - Calls `getJob(jobId)` immediately (no delay before the first check), then waits `intervalMs`
   between subsequent calls.
 - Yields `{ kind: 'polling', jobId, status }` on `queued`/`processing`.
@@ -180,7 +186,7 @@ Behavior implemented:
 - Returns `{ kind: 'failed', reason: 'server', message: errorCode ?? 'PARSE_FAILED' }` on
   `status: 'failed'`.
 - Returns `{ kind: 'failed', reason: 'timeout', message: 'POLL_TIMEOUT' }` once `Date.now()` passes
-  the deadline — checked *before* yielding, so the loop never yields a stage it's about to
+  the deadline — checked _before_ yielding, so the loop never yields a stage it's about to
   contradict.
 
 **Tests:** `parseJob.test.ts` (one per app, `jest`/`vitest` fake timers respectively) — a `getJob`
@@ -212,7 +218,7 @@ no need to hand-roll `expo-camera`.
 2. **`uploading`** — once a `uri` comes back from the picker:
    - `planpalClient.parse.getUploadUrl()`
    - `fetch`-free: turn the picker's `uri` into a `Blob` via `fetch(uri).then(r => r.blob())` —
-     this is the one legal RN idiom for reading a local file into a `Blob` and is *not* a network
+     this is the one legal RN idiom for reading a local file into a `Blob` and is _not_ a network
      call (`file://` URIs never leave the device), so it does not trip the §15 rule, but confirm
      this reasoning against the lint rule's actual glob before relying on it — if the lint rule
      matches the bare identifier `fetch` regardless of the URL scheme, this line has to move inside
@@ -228,7 +234,7 @@ no need to hand-roll `expo-camera`.
    to Task 2's poller. Screen shows the current sub-state (`queued` → "In queue…",
    `processing` → "Reading your screenshot…").
    - **Backgrounding:** if the user leaves the screen mid-poll, stop polling (clear the interval on
-     unmount) but do *not* cancel the job server-side — it keeps running. Re-entering `scan.tsx`
+     unmount) but do _not_ cancel the job server-side — it keeps running. Re-entering `scan.tsx`
      with a `jobId` still in flight (see persistence note below) should resume polling, not restart
      the whole flow.
    - **Persistence across app kill:** write `{ jobId, storagePath }` to `AsyncStorage` (already a
@@ -275,7 +281,7 @@ build it once, feed it from either source (stored job on cold start, or route pa
 
 **Not doing:** foreground notification banners/badges beyond what `expo-notifications`'s default
 handler already does. `registerPushToken.ts` and `notify-scheduler` already establish the
-notification-handler config (if any); this task only adds the *response* listener, not a new
+notification-handler config (if any); this task only adds the _response_ listener, not a new
 presentation handler, unless the existing config suppresses foreground alerts entirely — check
 `app.json`'s `notification` block and `expo-notifications` setup calls before assuming a listener
 alone is sufficient.
@@ -287,6 +293,7 @@ alone is sufficient.
 **File:** `apps/mobile/app/index.tsx` (modify)
 
 The single FAB currently opens `/create-event` only. Two options, pick one when building:
+
 - Long-press the FAB for a small menu ("New event" / "Scan a schedule"), or
 - A second, smaller FAB above it (matches the existing `bottom: 140` stacking already reserved
   above the bottom sheet).
@@ -303,19 +310,21 @@ Per the confirmed scope decision: no new backend endpoint, no real event list. T
 and the stub review screen are two small pieces:
 
 **In `scan.tsx` (mobile) / the upload page (web), `kind: 'done'` renders:**
+
 - "Found N events" / "No events found" (mirror the exact copy `parse-worker`'s push body already
   uses — `sendParseCompleteNotification`'s `noun`/`body` logic — so push and in-app copy agree).
 - A primary button: "Review" → `router.push({ pathname: '/review/[jobId]', params: { jobId } })`.
 - A secondary action: "Scan another" → reset to `picking`.
 
 **New stub screen:**
+
 - `apps/mobile/app/review/[jobId].tsx`
 - `apps/web/src/app/review/[jobId]/page.tsx`
 
 Both do the same thing: `getJob(jobId)` once for `eventCount`, render "N events found in this scan
 — full review is coming soon" plus a "Back to calendar" action. No polling (the job is already
 `done` by construction), no event list, no `PATCH` calls. Keep it genuinely small — the entire
-point of stubbing it is that Month 6 replaces the *body* of this screen without anyone needing to
+point of stubbing it is that Month 6 replaces the _body_ of this screen without anyone needing to
 touch the route name, the param, or anything that links to it.
 
 ---
