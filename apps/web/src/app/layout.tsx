@@ -4,7 +4,7 @@ import { Providers } from './providers';
 
 export const metadata = {
   title: 'PlanPal',
-  description: 'Calendar app with AI screenshot import and one-way social sharing.',
+  description: 'Calendar app with one-way social sharing.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

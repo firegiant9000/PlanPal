@@ -95,8 +95,8 @@ Honest about where this is. It's an active build, not a finished product.
 | Auth — email/password, session persistence                                                                    | Working                                                                                                                                                                                          |
 | Auth — Google / Apple OAuth                                                                                   | Buttons ship disabled; the PKCE exchange is unimplemented and [documented in-code](apps/web/src/app/auth/callback/page.tsx)                                                                      |
 | API — 10 Deno Edge Functions, JWT-verified                                                                    | Built; linted, type-checked and exercised over HTTP by the integration suite in CI                                                                                                               |
-| Friend connections and shared visibility                                                                      | Schema and API done; no UI yet                                                                                                                                                                   |
-| AI screenshot import                                                                                          | Pipeline built end to end — upload, OCR, LLM extraction, normalisation, conflict detection, spend ledger — on a cron worker. No UI wired yet                                                     |
+| Friend connections and shared visibility                                                                      | Schema and read policy done; the request/accept API (SECURITY DEFINER RPCs) and the UI are roadmap P1                                                                                            |
+| AI screenshot import                                                                                          | Backend pipeline built (upload, OCR, LLM extraction, normalisation, conflict detection, spend ledger) on a cron worker; no UI, no commit endpoint. **Parked until P1 is accepted**               |
 | In-app feedback                                                                                               | API, client and form components built and tested; not yet reachable from either app's navigation                                                                                                 |
 | Push notifications                                                                                            | Scheduler function built; device delivery gated on hardware testing                                                                                                                              |
 | CI — lint, typecheck, test, build, Expo pin check, recurrence mirror, Edge Function checks, integration suite | Running on every PR                                                                                                                                                                              |
@@ -105,7 +105,9 @@ Honest about where this is. It's an active build, not a finished product.
 
 The demo runs against a disposable Supabase project that is reseeded nightly,
 kept separate from the development project so active migrations can't break
-the link.
+the link. That project is also the `staging` deploy target: `deploy-staging.yml`
+has run against it (it deployed `dd73911` on 2026-09-30), so a merge to `main`
+reaches the public demo's backend.
 
 ## Running it locally
 

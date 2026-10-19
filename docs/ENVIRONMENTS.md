@@ -4,11 +4,11 @@ PlanPal runs **three fully separate Supabase projects** — one per environment.
 Sharing a single project across environments will bite us later (the plan flags
 "environment bleed" as a Month 1 risk), so separation is enforced from day 1.
 
-| Environment | Purpose | Supabase project | Deploy trigger |
-|-------------|---------|------------------|----------------|
-| **dev** | Day-to-day development; throwaway data | `planpal-dev` | manual / local |
-| **staging** | Prod-like integration + QA; auto-deploy target | `planpal-staging` | auto on merge to `main` (Phase 3 CI) |
-| **prod** | Live users | `planpal-prod` | manual, gated release |
+| Environment | Purpose                                                                            | Supabase project                                   | Deploy trigger                       |
+| ----------- | ---------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------ |
+| **dev**     | Day-to-day development; throwaway data                                             | `planpal-dev`                                      | manual / local                       |
+| **staging** | Prod-like integration + QA; auto-deploy target; doubles as the public demo backend | ~~`planpal-staging`~~ the demo project (see below) | auto on merge to `main` (Phase 3 CI) |
+| **prod**    | Live users                                                                         | `planpal-prod`                                     | manual, gated release                |
 
 Local development uses the **Supabase CLI local stack** (`pnpm db:start`), which
 is a fourth, disposable environment on your machine — it never touches a cloud
@@ -22,7 +22,7 @@ project.
   `supabase backups list` returning an empty `backups` array. The only backup is a
   manual `supabase db dump`, which does **not** capture the `on_auth_user_created`
   signup trigger and so is not a complete backup.
-- **staging** (`planpal-staging`) — not provisioned yet; decide its tier when it is.
+- **staging** — ~~not provisioned yet~~ provisioned (corrected 2026-10-18). `deploy-staging.yml` run 36767401569 deployed `dd73911` on 2026-09-30. It is the same Supabase project as the public demo (reseeded nightly), so merges to `main` reach the demo. Its backup tier is not recorded yet; record it here when checked.
 - **prod** (`planpal-prod`) — must be on a tier with daily automated backups (PITR
   recommended) **before external testers are admitted**. A manual dump is not
   sufficient evidence for MVP gate #7.

@@ -34,14 +34,12 @@ export function PrivacyDisclosure({ mode, onDismiss }: PrivacyDisclosureProps) {
         Before you scan a schedule
       </Text>
       <Text color="textSecondary" size="sm">
-        Screenshots you scan are sent to a third-party AI service so PlanPal
-        can read the schedule in them. They are used only to process that
-        scan and are not retained afterward.
+        Screenshots you scan are sent to Anthropic (the Claude AI service) so PlanPal can read the
+        schedule in them. If Claude cannot read an image clearly, it is also sent to Amazon
+        Textract. The screenshot, the text read from it and the events found in it are stored with
+        your account. PlanPal does not delete them automatically yet.
       </Text>
-      <Button
-        label={mode === 'gate' ? 'I understand, continue' : 'Close'}
-        onPress={onDismiss}
-      />
+      <Button label={mode === 'gate' ? 'I understand, continue' : 'Close'} onPress={onDismiss} />
     </View>
   );
 }

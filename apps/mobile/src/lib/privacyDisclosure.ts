@@ -1,8 +1,12 @@
 /**
  * Privacy disclosure notice (M5, Arlo's frontend task — MONTH5.md, distinct
- * from Upload UX). Requirement: a persistent notice that screenshots are sent
- * to a third-party AI and are not retained beyond the parse session, visible
- * before the first upload, and dismissible-but-re-viewable afterward.
+ * from Upload UX). Requirement: a persistent notice, visible before the first
+ * upload and dismissible-but-re-viewable afterward, that says truthfully what
+ * happens to a screenshot: it is sent to Anthropic (Textract as the OCR
+ * fallback), and the image, its OCR text and the extracted events are stored
+ * with the account. MONTH5.md's original "not retained beyond the parse
+ * session" was never implemented (nothing purges them), so the notice no
+ * longer claims it; a retention purge is part of the parked import work.
  *
  * This file owns only "has this device ever acknowledged it, and how to
  * record that it has now" — framework-agnostic and duplicated between
