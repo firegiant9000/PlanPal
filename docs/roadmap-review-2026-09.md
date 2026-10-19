@@ -2,7 +2,7 @@
 
 _Prepared 2026-09-29 against `main` at `72073af`. Read-only audit of the repository, its planning documents and CI. Nothing here is a measured result. Line references are to that commit._
 
-_(2026-10-19: kept as written. Since `72073af`, `main` has gained #19 (friend-connection writes restricted), #22 (the privacy notice now says screenshots are retained) and #23 (screenshot import parked until P1). Counts here, such as "about 176 integration tests", are as of that commit; check CI for current numbers.)_
+_(2026-10-19: kept as written. Since `72073af`, `main` has gained #19 (friend-connection writes restricted) and #22 (the privacy notice now says screenshots are retained; the README marks screenshot import parked until P1). This branch also carries #23, which was merged into it rather than into `main`. Counts here, such as "about 176 integration tests", are as of that commit; check CI for current numbers.)_
 
 This review is the evidence base for the 2026-09 revision at the top of [`planning/DEVELOPMENT_PLAN.md`](planning/DEVELOPMENT_PLAN.md), which stays the canonical plan.
 
