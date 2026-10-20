@@ -10,15 +10,30 @@ describe('PrivacyDisclosure', () => {
     render(<PrivacyDisclosure mode="gate" onDismiss={vi.fn()} />);
 
     expect(screen.getByText(/sent to Anthropic \(the Claude AI service\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Amazon Textract/)).toBeInTheDocument();
-    expect(screen.getByText(/stored with your account/)).toBeInTheDocument();
-    expect(screen.getByText(/does not delete them automatically yet/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/If Claude cannot read an image clearly, it is also sent to Amazon Textract/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/The screenshot, the text read from it and the events found in it are stored\./),
+    ).toBeInTheDocument();
   });
 
-  it('does not claim screenshots are discarded after the scan', () => {
+  it('says there is no in-app deletion yet', () => {
     render(<PrivacyDisclosure mode="gate" onDismiss={vi.fn()} />);
 
-    expect(screen.queryByText(/not retained/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/There is no way to delete them in the app yet\./),
+    ).toBeInTheDocument();
+  });
+
+  it('says account deletion removes the text and events but not the screenshot images', () => {
+    render(<PrivacyDisclosure mode="gate" onDismiss={vi.fn()} />);
+
+    expect(
+      screen.getByText(
+        /Deleting your account removes the text and events, but does not yet remove the screenshot images\./,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('labels the action "continue" in gate mode and calls onDismiss when clicked', () => {
