@@ -3,8 +3,7 @@
 A calendar app with a one-way social sharing layer — share what you're busy
 with, at the granularity you choose, without handing over your whole calendar.
 
-**[▶ Try the live demo](https://planpal-iota.vercel.app)** — one click, no registration.
-Signs in as `demo@planpal.app` / `planpal-demo` with sample data.
+**Hosted demo status (October 2026): not verified end to end.** A web landing page is deployed at [planpal-iota.vercel.app](https://planpal-iota.vercel.app), but the current demo sign-in, sample data, and backend workflows have not been retested in a logged-out browser. Do not treat this link as a working public demo until those checks pass.
 
 [![ci](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml/badge.svg)](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml)
 
@@ -65,13 +64,7 @@ Things in here I'd point at in a code review:
   commit SHA into the deployed functions, then requires `/healthz` to return
   200, `"status":"ok"`, _and_ that exact version — because a no-op functions
   deploy otherwise leaves the previous build answering healthily.
-- **Row-level security on every table in `public`, with the one exception made
-  explicit.** All seven have `rowsecurity` on. Six carry explicit policies;
-  `notification_sends` is scheduler bookkeeping and deliberately has _none_,
-  which denies every role that cannot bypass RLS. A test asserts that
-  distinction both ways, so adding a policy there fails the build — see
-  [`grants.test.ts`](supabase/tests/src) and
-  [`core_schema.sql`](supabase/migrations).
+- **Row-level security across the `public` schema, including the deliberately policy-free scheduler table.** Migrations now define ten public tables with RLS enabled (the older seven-table description was outdated). `notification_sends` is scheduler bookkeeping without explicit access policies for ordinary roles, so RLS denies those roles by default; the tests cover that intended exception. See [`grants.test.ts`](supabase/tests/src) and [`supabase/migrations`](supabase/migrations) for the current schema and policy definitions.
 - **Recurrence is a real engine, not a `for` loop.**
   [`packages/recurrence`](packages/recurrence) expands RRULEs with timezone
   handling, per-occurrence overrides, and cancellations. Its suite runs under
@@ -103,11 +96,7 @@ Honest about where this is. It's an active build, not a finished product.
 | Contract drift gate                                                                                           | Separate workflow, every PR                                                                                                                                                                      |
 | Deploy                                                                                                        | Web via Vercel's GitHub integration — production on merge, a preview per PR. Backend on merge to `main`, _when_ the `staging` environment secrets are set; skips with a notice when they are not |
 
-The demo runs against a disposable Supabase project that is reseeded nightly,
-kept separate from the development project so active migrations can't break
-the link. That project is also the `staging` deploy target: `deploy-staging.yml`
-has run against it (it deployed `dd73911` on 2026-09-30), so a merge to `main`
-reaches the public demo's backend.
+The demo environment was designed around a disposable Supabase project, separate from development, with scheduled reseeding. The staging deploy workflow previously deployed commit `dd73911` on 2026-09-30. This documents the pipeline design and historical deployment, **not** a fresh assertion that the current public demo, sign-in, or scheduled reseeding works. Verify those behaviors before re-enabling a prominent demo CTA.
 
 ## Running it locally
 
