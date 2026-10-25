@@ -3,7 +3,7 @@
 A calendar app with a one-way social sharing layer — share what you're busy
 with, at the granularity you choose, without handing over your whole calendar.
 
-**Hosted demo status (October 2026): not verified end to end.** A web landing page is deployed at [planpal-iota.vercel.app](https://planpal-iota.vercel.app), but the current demo sign-in, sample data, and backend workflows have not been retested in a logged-out browser. Do not treat this link as a working public demo until those checks pass.
+**Demo:** There is no confirmed public demo at present. The repository documents local setup and a staging deployment pipeline; see [Deploy](#deploy) for the deployment process.
 
 [![ci](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml/badge.svg)](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml)
 
