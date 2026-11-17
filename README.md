@@ -3,7 +3,7 @@
 A calendar app with a one-way social sharing layer — share what you're busy
 with, at the granularity you choose, without handing over your whole calendar.
 
-**Demo:** There is no confirmed public demo at present. The repository documents local setup and a staging deployment pipeline; see [Deploy](#deploy) for the deployment process.
+**Demo:** [planpal-iota.vercel.app](https://planpal-iota.vercel.app), the web app, which Vercel deploys from `main`. What is and is not finished is under [Status](#status).
 
 [![ci](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml/badge.svg)](https://github.com/firegiant9000/PlanPal/actions/workflows/ci.yml)
 
@@ -96,7 +96,7 @@ Honest about where this is. It's an active build, not a finished product.
 | Contract drift gate                                                                                           | Separate workflow, every PR                                                                                                                                                                      |
 | Deploy                                                                                                        | Web via Vercel's GitHub integration — production on merge, a preview per PR. Backend on merge to `main`, _when_ the `staging` environment secrets are set; skips with a notice when they are not |
 
-The demo environment was designed around a disposable Supabase project, separate from development, with scheduled reseeding. The staging deploy workflow previously deployed commit `dd73911` on 2026-09-30. This documents the pipeline design and historical deployment, **not** a fresh assertion that the current public demo, sign-in, or scheduled reseeding works. Verify those behaviors before re-enabling a prominent demo CTA.
+The demo environment was designed around a disposable Supabase project, separate from development, with scheduled reseeding. The staging deploy workflow last deployed the backend at commit `dd73911` on 2026-09-30. The web demo linked at the top is live; whether the scheduled reseeding still runs has not been re-verified.
 
 ## Running it locally
 
