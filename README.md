@@ -1,7 +1,10 @@
 # PlanPal
 
-A calendar app with a one-way social sharing layer — share what you're busy
-with, at the granularity you choose, without handing over your whole calendar.
+A calendar app with recurring events, built towards a one-way social sharing
+layer: share what you're busy with, at the granularity you choose, without
+handing over your whole calendar. The calendar works today. Sharing does not
+yet: the schema, a read policy and friend codes exist, but no user can see
+another user's events. See [Status](#status).
 
 **Demo:** There is no confirmed public demo at present. The repository documents local setup and a staging deployment pipeline; see [Deploy](#deploy) for the deployment process.
 
@@ -57,8 +60,10 @@ Things in here I'd point at in a code review:
   [`openapi.yaml`](packages/api-contract) generates
   [`packages/types/src/generated/openapi.ts`](packages/types/src/generated),
   and [`contract.yml`](.github/workflows/contract.yml) regenerates it on every
-  PR and fails on `git diff --exit-code`. A hand-edited type cannot survive a
-  merge.
+  PR that touches the contract or the generated types, and fails on
+  `git diff --exit-code`. A hand-edited type cannot survive a merge. The
+  contract runs ahead of the code in one place: it declares the friend
+  endpoints that are not built yet (see [Status](#status)).
 - **A deploy that silently did nothing fails the build.**
   [`deploy-staging.yml`](.github/workflows/deploy-staging.yml) stamps the
   commit SHA into the deployed functions, then requires `/healthz` to return
@@ -88,12 +93,14 @@ Honest about where this is. It's an active build, not a finished product.
 | Auth — email/password, session persistence                                                                    | Working                                                                                                                                                                                          |
 | Auth — Google / Apple OAuth                                                                                   | Buttons ship disabled; the PKCE exchange is unimplemented and [documented in-code](apps/web/src/app/auth/callback/page.tsx)                                                                      |
 | API — 10 Deno Edge Functions, JWT-verified                                                                    | Built; linted, type-checked and exercised over HTTP by the integration suite in CI                                                                                                               |
-| Friend connections and shared visibility                                                                      | Schema and read policy done; the request/accept API (SECURITY DEFINER RPCs) and the UI are roadmap P1                                                                                            |
+| Friend codes                                                                                                  | Get and rotate endpoints built and covered by the integration suite; no screen uses them yet                                                                                                     |
+| Friend connections — request, accept, decline, block                                                          | Table and read-only policy done. The endpoints are declared in the OpenAPI contract but have no handler; the request/accept API (SECURITY DEFINER RPCs) and the UI are roadmap P1                |
+| Shared visibility                                                                                             | Events store a visibility value, and the event form offers "All friends". Event access is owner-only, so no other user can see a shared event until the friend view (roadmap P1) is built        |
 | AI screenshot import                                                                                          | Backend pipeline built (upload, OCR, LLM extraction, normalisation, conflict detection, spend ledger) on a cron worker; no UI, no commit endpoint. **Parked until P1 is accepted**               |
 | In-app feedback                                                                                               | API, client and form components built and tested; not yet reachable from either app's navigation                                                                                                 |
 | Push notifications                                                                                            | Scheduler function built; device delivery gated on hardware testing                                                                                                                              |
 | CI — lint, typecheck, test, build, Expo pin check, recurrence mirror, Edge Function checks, integration suite | Running on every PR                                                                                                                                                                              |
-| Contract drift gate                                                                                           | Separate workflow, every PR                                                                                                                                                                      |
+| Contract drift gate                                                                                           | Separate workflow, on every PR that touches the contract or the generated types, and on every push to `main`                                                                                     |
 | Deploy                                                                                                        | Web via Vercel's GitHub integration — production on merge, a preview per PR. Backend on merge to `main`, _when_ the `staging` environment secrets are set; skips with a notice when they are not |
 
 The demo environment was designed around a disposable Supabase project, separate from development, with scheduled reseeding. The staging deploy workflow previously deployed commit `dd73911` on 2026-09-30. This documents the pipeline design and historical deployment, **not** a fresh assertion that the current public demo, sign-in, or scheduled reseeding works. Verify those behaviors before re-enabling a prominent demo CTA.
@@ -127,6 +134,13 @@ both with password `password123`.
 
 Full setup, repo layout and the migration strategy:
 [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md).
+
+## Tests
+
+Unit tests run per package. The integration suite in
+[`supabase/tests`](supabase/tests/src) calls the Edge Functions over HTTP and
+checks the grants and row-level security policies against the local stack. CI
+runs all of it on every PR. More in [docs/TESTING.md](docs/TESTING.md).
 
 ```bash
 pnpm lint         # eslint across the workspace
