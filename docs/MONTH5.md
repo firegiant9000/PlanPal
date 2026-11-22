@@ -1,5 +1,7 @@
 # Month 5 — Screenshot-to-Schedule Pipeline (B1 + B2)
 
+> **Status 2026-09-29.** Steps 1 to 8 (the server pipeline) are done and stay as they are. The four 🟡 rows (upload UX, privacy disclosure wiring, cost-monitoring UI, feedback wiring) are **DEFERRED** until sharing, the cross-user RLS proof and the recurrence differential tests (P1 to P3 in [planning/DEVELOPMENT_PLAN.md](planning/DEVELOPMENT_PLAN.md)) are done. No screen calls the pipeline today, so it processes nothing; the server-side spend kill-switch remains the cost guard. Before any upload UI ships, the privacy disclosure must be wired first, because images go to two external processors.
+
 **Weeks 17–20 · Focus: server-side parse pipeline, end to end.**
 The pipeline runs entirely server-side so the model can be upgraded without
 app releases. Client sends an image; server OCRs, extracts, normalises, and
@@ -9,20 +11,20 @@ conflict-checks; client polls for results.
 
 ## Status overview
 
-| Step | Owner | Status |
-|---|---|---|
-| Step 1 — Upload flow | Scott | ✅ Complete |
-| Step 2 — OCR (Claude vision + Textract fallback) | Scott | ✅ Complete |
-| Step 3 — LLM extraction | Scott | ✅ Complete |
-| Step 4 — Normalisation | Scott | ✅ Complete |
-| Step 5 — Conflict detection | Scott | ✅ Complete |
-| Step 6 — Job completion (push + badge) | Scott | ✅ Complete |
-| Step 7 — Rate limiting (15/user/day) | Scott | ✅ Complete |
-| Step 8 — B2 variable-schedule detection | Scott | ✅ Complete |
-| Upload UX (camera roll, progress states) | Arlo | 🟡 In progress — see `docs/M5_UPLOAD_UX_PLAN.md` |
-| Privacy disclosure notice (App Store req) | Arlo | 🟡 In progress — notice + persistence built, not wired |
-| Cost monitoring & budget alerts | Both | 🟡 In progress — see `docs/M5_CROSS_CUTTING_PLAN.md` |
-| User support & feedback loop | Both | 🟡 In progress — backend/client/form built, not wired into either app; see `docs/M5_CROSS_CUTTING_PLAN.md` |
+| Step                                             | Owner | Status                                                                                                     |
+| ------------------------------------------------ | ----- | ---------------------------------------------------------------------------------------------------------- |
+| Step 1 — Upload flow                             | Scott | ✅ Complete                                                                                                |
+| Step 2 — OCR (Claude vision + Textract fallback) | Scott | ✅ Complete                                                                                                |
+| Step 3 — LLM extraction                          | Scott | ✅ Complete                                                                                                |
+| Step 4 — Normalisation                           | Scott | ✅ Complete                                                                                                |
+| Step 5 — Conflict detection                      | Scott | ✅ Complete                                                                                                |
+| Step 6 — Job completion (push + badge)           | Scott | ✅ Complete                                                                                                |
+| Step 7 — Rate limiting (15/user/day)             | Scott | ✅ Complete                                                                                                |
+| Step 8 — B2 variable-schedule detection          | Scott | ✅ Complete                                                                                                |
+| Upload UX (camera roll, progress states)         | Arlo  | 🟡 In progress — see `docs/M5_UPLOAD_UX_PLAN.md`                                                           |
+| Privacy disclosure notice (App Store req)        | Arlo  | 🟡 In progress — notice + persistence built, not wired                                                     |
+| Cost monitoring & budget alerts                  | Both  | 🟡 In progress — see `docs/M5_CROSS_CUTTING_PLAN.md`                                                       |
+| User support & feedback loop                     | Both  | 🟡 In progress — backend/client/form built, not wired into either app; see `docs/M5_CROSS_CUTTING_PLAN.md` |
 
 ---
 
@@ -37,11 +39,11 @@ polls for results.
 
 **Three endpoints, all handled by the `parse` Edge Function:**
 
-| Method | Path | What it does |
-|---|---|---|
-| `POST` | `/parse/upload-url` | Rate-checks caller, returns a presigned upload URL + storage path |
-| `POST` | `/parse` | Validates storage path ownership, inserts a `parse_jobs` row, enqueues to Redis, returns the job |
-| `GET` | `/parse/{jobId}` | Returns the current state of a job |
+| Method | Path                | What it does                                                                                     |
+| ------ | ------------------- | ------------------------------------------------------------------------------------------------ |
+| `POST` | `/parse/upload-url` | Rate-checks caller, returns a presigned upload URL + storage path                                |
+| `POST` | `/parse`            | Validates storage path ownership, inserts a `parse_jobs` row, enqueues to Redis, returns the job |
+| `GET`  | `/parse/{jobId}`    | Returns the current state of a job                                                               |
 
 **Rate limit:** 15 parse requests per user per 24 hours (enforced server-side
 via `parse_jobs` count query; checked on both `upload-url` and `parse`).
@@ -51,6 +53,7 @@ via `parse_jobs` count query; checked on both `upload-url` and `parse`).
 ### Infrastructure set up
 
 **Upstash Redis**
+
 - A Redis database was created at [console.upstash.com](https://console.upstash.com)
   for the `parse:queue` job queue.
 - The Edge Function writes jobs via the Upstash REST API (raw `fetch` — no library).
@@ -58,6 +61,7 @@ via `parse_jobs` count query; checked on both `upload-url` and `parse`).
   as Supabase project secrets and in `supabase/functions/.env` locally.
 
 **Supabase cloud project (`planpal-dev`)**
+
 - Cloud project linked via `npx supabase link --project-ref <ref>`.
 - All existing migrations pushed via `npx supabase db push`.
 - A migration sequencing issue was discovered and fixed during push (see
@@ -69,6 +73,7 @@ via `parse_jobs` count query; checked on both `upload-url` and `parse`).
 
 **`supabase/migrations/20260909000005_parse_jobs.sql`**
 Creates the `parse_jobs` table:
+
 - `id`, `user_id`, `storage_path`, `status`, `event_count`, `error_code`,
   `created_at`, `updated_at`
 - Status constraint: `queued | processing | done | failed`
@@ -79,6 +84,7 @@ Creates the `parse_jobs` table:
 
 **`supabase/functions/parse/index.ts`**
 The full Edge Function handling all three routes. Key implementation details:
+
 - Routing via URL segment parsing (`segments[1]` = `'upload-url'` | UUID | absent)
 - Uses the service role client (not the user client) to call
   `createSignedUploadUrl` — required for elevated storage permissions
@@ -89,6 +95,7 @@ The full Edge Function handling all three routes. Key implementation details:
 
 **`packages/api-client/src/resources/parse.ts`**
 `ParseResource` interface + `createParseResource(http)` factory:
+
 - `getUploadUrl()` → `POST /parse/upload-url`
 - `enqueue(input)` → `POST /parse`
 - `getJob(jobId)` → `GET /parse/{jobId}`
@@ -99,6 +106,7 @@ The full Edge Function handling all three routes. Key implementation details:
 
 **`packages/api-contract/openapi.yaml`**
 Added the `parse` tag and six new schemas + three path entries:
+
 - Schemas: `ParseJobStatus`, `ParseUploadUrl`, `ParseJobCreate`, `ParseJob`,
   `ParseUploadUrlResult`, `ParseJobResult`
 - Paths: `POST /parse/upload-url`, `POST /parse`, `GET /parse/{jobId}`
@@ -106,11 +114,13 @@ Added the `parse` tag and six new schemas + three path entries:
 **`packages/types/src/generated/openapi.ts`**
 **`supabase/functions/_shared/contract-types.ts`**
 Both regenerated from `openapi.yaml` via:
+
 ```bash
 cd packages/api-contract
 npx openapi-typescript openapi.yaml --output ../types/src/generated/openapi.ts
 npx openapi-typescript openapi.yaml --output ../../supabase/functions/_shared/contract-types.ts
 ```
+
 Run `pnpm contract:generate` from the repo root after any future change to
 `packages/api-contract/openapi.yaml`.
 
@@ -168,6 +178,7 @@ as a fallback when Claude reports low confidence. The OCR result is stored on
 the `parse_jobs` row for Stage 2 (LLM extraction) to consume.
 
 **Flow per invocation:**
+
 1. Validate `X-Cron-Secret` header (same pattern as `notify-scheduler`)
 2. RPOP one payload from `parse:queue` (FIFO — enqueued with LPUSH)
 3. Set `parse_jobs.status = 'processing'` to claim the job
@@ -186,6 +197,7 @@ On any error: sets `status = 'failed'` with a typed `error_code`:
 ### Infrastructure set up
 
 **AWS IAM**
+
 - An IAM user was created with `AmazonTextractFullAccess`.
 - An access key was generated for that user.
 - `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` were set as Supabase project
@@ -193,6 +205,7 @@ On any error: sets `status = 'failed'` with a typed `error_code`:
   in the worker if not explicitly set.
 
 **pg_cron vault entry**
+
 - A new vault secret `parse_worker_function_url` was created in the
   `planpal-dev` project pointing to the deployed function URL.
 - The worker reuses the existing `cron_secret` and `anon_key` vault entries
@@ -204,6 +217,7 @@ On any error: sets `status = 'failed'` with a typed `error_code`:
 
 **`supabase/functions/parse-worker/index.ts`**
 The worker Edge Function. Key implementation details:
+
 - Uses `aws4fetch` (`https://esm.sh/aws4fetch@1.0.20`) for AWS Signature V4
   signing of Textract requests — no AWS SDK required in Deno
 - `toBase64()` converts image bytes in 32 KB chunks to avoid call-stack
@@ -215,6 +229,7 @@ The worker Edge Function. Key implementation details:
 
 **`supabase/migrations/20260909000006_parse_jobs_ocr.sql`**
 Adds two columns to `parse_jobs`:
+
 - `ocr_text text` — raw text extracted from the image
 - `ocr_provider text check (in ('claude', 'textract'))` — which engine produced it
 
@@ -232,6 +247,7 @@ Added `ocr_text: string | null` and `ocr_provider: string | null` to the
 `parse_jobs` Row, Insert, and Update types.
 
 **`docs/SECRETS.md`**
+
 - Added `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` to the
   secret inventory table.
 - Added `parse_worker_function_url` to the vault secrets table.
@@ -253,19 +269,20 @@ normalisation runs.
 
 **Structured output per candidate event:**
 
-| Field | Type | Description |
-|---|---|---|
-| `name` | `string` | Event title, exactly as it appears in the text |
-| `date` | `string` | Date string exactly as it appears |
-| `startTime` | `string \| null` | Start time exactly as it appears, or null |
-| `endTime` | `string \| null` | End time exactly as it appears, or null |
-| `location` | `string \| null` | Location or room if present, or null |
-| `recurrence` | `string \| null` | Recurrence pattern as it appears, or null |
+| Field        | Type             | Description                                    |
+| ------------ | ---------------- | ---------------------------------------------- |
+| `name`       | `string`         | Event title, exactly as it appears in the text |
+| `date`       | `string`         | Date string exactly as it appears              |
+| `startTime`  | `string \| null` | Start time exactly as it appears, or null      |
+| `endTime`    | `string \| null` | End time exactly as it appears, or null        |
+| `location`   | `string \| null` | Location or room if present, or null           |
+| `recurrence` | `string \| null` | Recurrence pattern as it appears, or null      |
 
 Dates and times are kept verbatim from the OCR text at this stage — resolution
 happens in Step 4 (normalisation).
 
 **Failure handling:**
+
 - Blank OCR text → returns `{ events: [], reason: 'NO_OCR_TEXT' }` (not an error)
 - Claude API HTTP error → throws `ParseError('EXTRACTION_FAILED')` — retryable in Step 7
 - Unparseable JSON response → returns `{ events: [], reason: 'EXTRACTION_PARSE_ERROR' }`
@@ -277,6 +294,7 @@ happens in Step 4 (normalisation).
 ### Files created
 
 **`supabase/migrations/20260910000000_parse_jobs_extraction.sql`**
+
 ```sql
 alter table public.parse_jobs add column extracted_events jsonb;
 ```
@@ -286,6 +304,7 @@ alter table public.parse_jobs add column extracted_events jsonb;
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added `CandidateEvent` type (the six fields above)
 - Added `runExtraction(ocrText)` async function:
   - Returns early with an empty array if `ocrText` is blank
@@ -326,28 +345,28 @@ engine for RRULE validation.
 
 **`toRRule` lookup table:**
 
-| Input pattern | RRULE output |
-|---|---|
-| `daily`, `every day` | `FREQ=DAILY` |
-| `weekly`, `every week` | `FREQ=WEEKLY` |
-| `biweekly`, `every other week` | `FREQ=WEEKLY;INTERVAL=2` |
-| `monthly`, `every month` | `FREQ=MONTHLY` |
-| `yearly`, `annually` | `FREQ=YEARLY` |
-| `weekday` | `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` |
-| `every Monday` (etc.) | `FREQ=WEEKLY;BYDAY=MO` (etc.) |
-| anything else | `null` → `UNSUPPORTED_RRULE` flag |
+| Input pattern                  | RRULE output                       |
+| ------------------------------ | ---------------------------------- |
+| `daily`, `every day`           | `FREQ=DAILY`                       |
+| `weekly`, `every week`         | `FREQ=WEEKLY`                      |
+| `biweekly`, `every other week` | `FREQ=WEEKLY;INTERVAL=2`           |
+| `monthly`, `every month`       | `FREQ=MONTHLY`                     |
+| `yearly`, `annually`           | `FREQ=YEARLY`                      |
+| `weekday`                      | `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` |
+| `every Monday` (etc.)          | `FREQ=WEEKLY;BYDAY=MO` (etc.)      |
+| anything else                  | `null` → `UNSUPPORTED_RRULE` flag  |
 
 **`NormalizedEvent` output shape** (extends `CandidateEvent`):
 
-| Field | Type | Notes |
-|---|---|---|
-| `startDateTime` | `string \| null` | `YYYY-MM-DDTHH:mm:ss` local |
-| `endDateTime` | `string \| null` | `YYYY-MM-DDTHH:mm:ss` local |
-| `recurrenceRule` | `string \| null` | RFC 5545 RRULE string |
-| `flagged` | `boolean` | true if any flag reason is present |
-| `flagReasons` | `string[]` | `PAST_DATE \| OUTSIDE_WINDOW \| UNPARSEABLE_DATE \| UNSUPPORTED_RRULE \| CONFLICT` |
-| `conflictingEventIds` | `string[]` | populated by Step 5; initialised `[]` here |
-| `variableScheduleSuggestions` | `VariableScheduleSuggestion[]` | populated by Step 8; initialised `[]` here |
+| Field                         | Type                           | Notes                                                                              |
+| ----------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+| `startDateTime`               | `string \| null`               | `YYYY-MM-DDTHH:mm:ss` local                                                        |
+| `endDateTime`                 | `string \| null`               | `YYYY-MM-DDTHH:mm:ss` local                                                        |
+| `recurrenceRule`              | `string \| null`               | RFC 5545 RRULE string                                                              |
+| `flagged`                     | `boolean`                      | true if any flag reason is present                                                 |
+| `flagReasons`                 | `string[]`                     | `PAST_DATE \| OUTSIDE_WINDOW \| UNPARSEABLE_DATE \| UNSUPPORTED_RRULE \| CONFLICT` |
+| `conflictingEventIds`         | `string[]`                     | populated by Step 5; initialised `[]` here                                         |
+| `variableScheduleSuggestions` | `VariableScheduleSuggestion[]` | populated by Step 8; initialised `[]` here                                         |
 
 The user's `timezone_id` is fetched once from the `users` table before
 normalisation and reused by conflict detection (Step 5) — one DB round trip
@@ -358,6 +377,7 @@ for both stages.
 ### Files created
 
 **`supabase/migrations/20260910000001_parse_jobs_normalised.sql`**
+
 ```sql
 alter table public.parse_jobs add column normalised_events jsonb;
 ```
@@ -367,6 +387,7 @@ alter table public.parse_jobs add column normalised_events jsonb;
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added import: `* as chrono from 'https://esm.sh/chrono-node@2.7.7'`
 - Added `NormalizedEvent` type extending `CandidateEvent`
 - Added `VariableScheduleSuggestion` type (populated later in Step 8)
@@ -423,6 +444,7 @@ graceful degradation rather than a failed job.
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added imports: `expandOccurrences`, `localToUtc`, `mapEventRow`, `parseLocal`,
   `type EventRow` from `_shared/recurrence/index.ts`
 - Added `overlapsUtc(aStart, aEnd, bStart, bEnd)` helper (half-open UTC interval)
@@ -446,18 +468,19 @@ screen.
 
 **Push payload per device:**
 
-| Field | Value |
-|---|---|
-| `title` | `"Schedule scan complete"` |
-| `body` | `"Found N events. Tap to review."` (or zero-events variant) |
-| `badge` | `eventCount` — sets the app icon badge number |
-| `sound` | `"default"` |
-| `channelId` | `"default"` |
-| `data.type` | `"parse_complete"` |
-| `data.jobId` | the completed job ID |
-| `data.eventCount` | the final event count |
+| Field             | Value                                                       |
+| ----------------- | ----------------------------------------------------------- |
+| `title`           | `"Schedule scan complete"`                                  |
+| `body`            | `"Found N events. Tap to review."` (or zero-events variant) |
+| `badge`           | `eventCount` — sets the app icon badge number               |
+| `sound`           | `"default"`                                                 |
+| `channelId`       | `"default"`                                                 |
+| `data.type`       | `"parse_complete"`                                          |
+| `data.jobId`      | the completed job ID                                        |
+| `data.eventCount` | the final event count                                       |
 
 **Key design decisions:**
+
 - Push is sent **after** `parse_jobs.status = 'done'` is committed — a push
   failure never fails the job.
 - `EXPO_ACCESS_TOKEN` is read from env; if absent the push is still attempted
@@ -471,6 +494,7 @@ screen.
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added `EXPO_PUSH_URL` constant (`https://exp.host/--/api/v2/push/send`)
 - Added `sendParseCompleteNotification(userId, jobId, eventCount, admin)` function:
   - Fetches `expo_push_token` from `devices` where `user_id = userId`
@@ -492,6 +516,7 @@ Automatic retry for transient pipeline failures, ensuring the per-user
 
 The `parse_jobs` table now carries a `retry_count` column. When the worker
 catches a retryable error code and `retry_count` is below `MAX_RETRIES (3)`:
+
 1. Increment `retry_count` and reset `status = 'queued'` on the existing row.
 2. Call `requeueToRedis` (RPUSH to the queue tail — retried jobs yield to new
    submissions from other users).
@@ -502,16 +527,16 @@ If `requeueToRedis` fails (Redis is down), the function falls through and sets
 
 **Retryable vs permanent error codes:**
 
-| Code | Retryable | Reason |
-|---|---|---|
-| `STORAGE_DOWNLOAD_FAILED` | ✅ | Transient storage hiccup |
-| `CLAUDE_API_ERROR` | ✅ | Transient API rate-limit or timeout |
-| `TEXTRACT_ERROR` | ✅ | Transient AWS API failure |
-| `EXTRACTION_FAILED` | ✅ | Transient Claude API failure (extraction stage) |
-| `IMAGE_TOO_LARGE` | ❌ | The image will always be too large |
-| `CONFIG_MISSING` | ❌ | Deployment/config error — will not self-resolve |
-| `USER_NOT_FOUND` | ❌ | Logic error — will not self-resolve |
-| `OCR_FAILED` | ❌ | Unknown error — retry risk too high |
+| Code                      | Retryable | Reason                                          |
+| ------------------------- | --------- | ----------------------------------------------- |
+| `STORAGE_DOWNLOAD_FAILED` | ✅        | Transient storage hiccup                        |
+| `CLAUDE_API_ERROR`        | ✅        | Transient API rate-limit or timeout             |
+| `TEXTRACT_ERROR`          | ✅        | Transient AWS API failure                       |
+| `EXTRACTION_FAILED`       | ✅        | Transient Claude API failure (extraction stage) |
+| `IMAGE_TOO_LARGE`         | ❌        | The image will always be too large              |
+| `CONFIG_MISSING`          | ❌        | Deployment/config error — will not self-resolve |
+| `USER_NOT_FOUND`          | ❌        | Logic error — will not self-resolve             |
+| `OCR_FAILED`              | ❌        | Unknown error — retry risk too high             |
 
 **Why the rate limit is correct:**
 `isRateLimited` in `parse/index.ts` counts `parse_jobs` rows — one per user
@@ -524,6 +549,7 @@ their slot; the limit is on submissions, not successes.
 ### Files created
 
 **`supabase/migrations/20260910000002_parse_jobs_retry.sql`**
+
 ```sql
 alter table public.parse_jobs add column retry_count integer not null default 0;
 ```
@@ -533,6 +559,7 @@ alter table public.parse_jobs add column retry_count integer not null default 0;
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added `MAX_RETRIES = 3` constant
 - Added `RETRYABLE_ERROR_CODES` set
 - Added `requeueToRedis(jobId, userId, storagePath)` function — uses RPUSH,
@@ -540,6 +567,7 @@ alter table public.parse_jobs add column retry_count integer not null default 0;
 - Rewrote the catch block to attempt retry before marking the job failed
 
 **`supabase/functions/parse/index.ts`**
+
 - Added explanatory comment to `isRateLimited` clarifying why all statuses are
   counted and why worker retries do not inflate the count
 
@@ -565,10 +593,10 @@ no calendar data changes until the user explicitly confirms in the review UI.
 
 **`VariableScheduleSuggestion` shape:**
 
-| Field | Type | Description |
-|---|---|---|
-| `masterId` | `string` | The variable-schedule master event's ID |
-| `masterTitle` | `string` | The routine's display name |
+| Field            | Type     | Description                              |
+| ---------------- | -------- | ---------------------------------------- |
+| `masterId`       | `string` | The variable-schedule master event's ID  |
+| `masterTitle`    | `string` | The routine's display name               |
 | `occurrenceDate` | `string` | `YYYY-MM-DD` — the week slot to pre-fill |
 
 When the user confirms a suggestion, the client calls
@@ -597,6 +625,7 @@ row with actual times.
 ### Files modified
 
 **`supabase/functions/parse-worker/index.ts`**
+
 - Added `VariableScheduleSuggestion` type
 - Added `variableScheduleSuggestions: VariableScheduleSuggestion[]` field to
   `NormalizedEvent`; initialised to `[]` in `runNormalisation`
@@ -661,16 +690,19 @@ RPUSH back to Redis. Up to 3 retries before permanent `status = 'failed'`.
 ## Arlo's M5 tasks
 
 **Upload UX**
+
 - Camera roll picker, take-photo flow, web file upload
 - Job-progress states (uploading → queued → processing → done/failed)
 - Completion state: show event count, link to review sheet
 
 **Privacy disclosure notice** _(Required for App Store submission)_ 🟡 In progress
+
 - Persistent notice: images are sent to third-party AI and are not retained
   beyond the parse session
 - Must be visible before the first upload and dismissible-but-re-viewable
 
 Built so far (both apps), independent of the upload flow it will eventually gate:
+
 - `src/lib/privacyDisclosure.ts` — `hasAcknowledgedDisclosure`/`acknowledgeDisclosure`, storage
   injected via a `DisclosureStore` interface (the same `Like`-interface pattern
   `loadOccurrences.ts` uses for `OccurrencesLike`) so the logic is testable without AsyncStorage or
@@ -696,6 +728,7 @@ See `docs/M5_CROSS_CUTTING_PLAN.md` for the full split of this section into code
 manual/ops actions, and the implementation detail behind what's built.
 
 **Cost monitoring & budget alerts**
+
 - Claude API: set a daily spend alert in the Anthropic console — ⬜ manual action, not done
   (see `docs/SECRETS.md`'s `ANTHROPIC_API_KEY` row, which has carried this as an open rotation note
   since it was written)
@@ -709,6 +742,7 @@ manual/ops actions, and the implementation detail behind what's built.
   the plan doc.
 
 **User support & feedback loop**
+
 - In-app feedback channel — ✅ **Backend/client/form complete, not wired.** `POST /feedback`
   (new `feedback` table, owner-scoped RLS, rate-limited to 20/user/24h) + `FeedbackResource` in
   `packages/api-client` + a self-contained `FeedbackForm` component in both apps. Not yet reachable
@@ -738,6 +772,7 @@ manual/ops actions, and the implementation detail behind what's built.
 For any developer picking this up or deploying to a new environment:
 
 **Step 1 — Upload flow**
+
 ```bash
 npx supabase secrets set UPSTASH_REDIS_REST_URL=https://... UPSTASH_REDIS_REST_TOKEN=...
 npx supabase functions deploy parse
@@ -745,12 +780,15 @@ npx supabase db push
 ```
 
 **Step 2 — OCR worker**
+
 ```bash
 npx supabase secrets set AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
 npx supabase functions deploy parse-worker
 npx supabase db push
 ```
+
 Then in the Supabase SQL editor:
+
 ```sql
 select vault.create_secret(
   'https://<ref>.supabase.co/functions/v1/parse-worker',
@@ -759,6 +797,7 @@ select vault.create_secret(
 ```
 
 **Steps 3–8 — Full pipeline (deploy after Steps 1–2)**
+
 ```bash
 npx supabase db push
 npx supabase functions deploy parse-worker

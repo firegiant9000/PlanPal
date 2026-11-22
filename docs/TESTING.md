@@ -141,6 +141,9 @@ Three occurrences, not four. Check specifically that 09-14 shows **11:00 and not
 entry** (the cancellation applied) — those two are what a tolerant importer gets
 wrong silently. A time shifted by a whole hour on any row means the bare `TZID`
 was not honoured, and `VTIMEZONE` generation moves from M9 into this month.
+_2026-09-29: the import check (task E4) and `VTIMEZONE` generation are now
+milestone P4 in [planning/DEVELOPMENT_PLAN.md](planning/DEVELOPMENT_PLAN.md);
+the expected set above stays the prediction to check against._
 
 **Google alone is not sufficient evidence.** It tolerates bare IANA TZIDs, so it
 is the importer that proves least; Outlook.com is the one that can fail.

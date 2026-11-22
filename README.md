@@ -69,7 +69,16 @@ Things in here I'd point at in a code review:
   commit SHA into the deployed functions, then requires `/healthz` to return
   200, `"status":"ok"`, _and_ that exact version — because a no-op functions
   deploy otherwise leaves the previous build answering healthily.
-- **Row-level security across the `public` schema, including the deliberately policy-free scheduler table.** Migrations now define ten public tables with RLS enabled (the older seven-table description was outdated). `notification_sends` is scheduler bookkeeping without explicit access policies for ordinary roles, so RLS denies those roles by default; the tests cover that intended exception. See [`grants.test.ts`](supabase/tests/src) and [`supabase/migrations`](supabase/migrations) for the current schema and policy definitions.
+- **Row-level security on every table in `public`, with the exceptions made
+  explicit.** All ten tables have `rowsecurity` on. Eight carry explicit
+  policies; `notification_sends` and `parse_spend_ledger` are bookkeeping and
+  deliberately have _none_, which denies every role that cannot bypass RLS. A
+  test asserts that distinction both ways for the tables it covers, so adding
+  a policy there fails the build — see
+  [`grants.test.ts`](supabase/tests/src) and
+  [`core_schema.sql`](supabase/migrations). The RLS story is owner-only
+  today; the cross-user proof (friend, stranger, blocked, revoked) is roadmap
+  milestone P2.
 - **Recurrence is a real engine, not a `for` loop.**
   [`packages/recurrence`](packages/recurrence) expands RRULEs with timezone
   handling, per-occurrence overrides, and cancellations. Its suite runs under
@@ -79,9 +88,12 @@ Things in here I'd point at in a code review:
   [`@planpal/design-tokens`](packages/design-tokens) is framework-agnostic
   plain values consumed by both React Native and the DOM, so a spacing change
   lands on both platforms at once.
-- **Timezone correctness is tested as a property.** Events store local
-  wall-clock time plus a timezone id, with UTC derived by trigger — see
-  [`utc-authority.test.ts`](supabase/tests/src).
+- **Timezone correctness is tested against Postgres.** Events store local
+  wall-clock time plus a timezone id, with UTC derived by trigger; a fixed set
+  of (local, zone) pairs including the DST gap and fold is checked against the
+  database — see [`utc-authority.test.ts`](supabase/tests/src). These are
+  hand-written cases, not generated properties; differential property tests
+  against rrule.js are roadmap milestone P3.
 
 ## Status
 
@@ -104,6 +116,12 @@ Honest about where this is. It's an active build, not a finished product.
 | Deploy                                                                                                        | Web via Vercel's GitHub integration — production on merge, a preview per PR. Backend on merge to `main`, _when_ the `staging` environment secrets are set; skips with a notice when they are not |
 
 The demo environment was designed around a disposable Supabase project, separate from development, with scheduled reseeding. The staging deploy workflow last deployed the backend at commit `dd73911` on 2026-09-30. The web demo linked at the top is live; whether the scheduled reseeding still runs has not been re-verified.
+
+**Direction (2026-09):** PlanPal is a personal calendar and a technical
+showcase, not a launch. The next work is sharing end to end with cross-user
+RLS proof, differential recurrence tests, and an ICS feed. See the 2026-09
+revision at the top of
+[docs/planning/DEVELOPMENT_PLAN.md](docs/planning/DEVELOPMENT_PLAN.md).
 
 ## Running it locally
 

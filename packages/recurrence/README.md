@@ -21,13 +21,23 @@ The engine is **pure and synchronous** — no DB, no network. It re-derives
 `utcStart`/`utcEnd` per occurrence from `local_*` + `timezone_id` (it ignores the
 DB's stored `utc_*`), so DST shifts across a series are honored.
 
-## Supported now (kickoff subset)
+## Supported now
 
-Enough to expand real weekly / bi-weekly / custom-day schedules:
+_Updated 2026-09-29 to match the code; the list below the kickoff heading was
+written before Month 2 and had gone stale._
 
-- `FREQ=DAILY` and `FREQ=WEEKLY`
+- `FREQ=DAILY`, `WEEKLY`, `MONTHLY`, `YEARLY` (incl. birthday auto-events)
 - `INTERVAL` (e.g. bi-weekly = `WEEKLY;INTERVAL=2`)
-- `BYDAY` weekday list (`MO,WE,FR`)
+- `BYDAY` weekday list (`MO,WE,FR`) and ordinals (`2MO`, `-1FR`)
+- `BYMONTHDAY` (±1..31; an explicit `BYMONTHDAY=31` skips short months)
+- `BYMONTH` (YEARLY only), `BYSETPOS`, `WKST`
+- **Deliberate divergence, not yet documented as a decision:** MONTHLY and
+  YEARLY rules with no `BY*` part _clamp_ a 29th–31st start to the last day of
+  a short month (Jan 31 → Feb 28), where RFC 5545 skips the month. P3 decides
+  this and records it here. Do not describe the engine as RFC 5545 compliant.
+- `BYYEARDAY`, `BYWEEKNO`, `BYHOUR`, `BYMINUTE`, `EXDATE`/`RDATE` in the rule
+  string: not supported (throw `UnsupportedRRuleError` where parsed)
+- Edit scope: THIS only; THIS_AND_FOLLOWING is deferred
 - `COUNT` and `UNTIL` end conditions — **counted from the series start**, not the
   query window, so a windowed view never miscounts a bounded series
 - THIS-scope **overrides** (sparse: `null` field = inherit from master) and
@@ -41,17 +51,22 @@ Enough to expand real weekly / bi-weekly / custom-day schedules:
 
 Out-of-subset rules throw `UnsupportedRRuleError` (loud, never a silent drop).
 
-## Completes in Month 2 (NOT in this kickoff)
+## Status of the kickoff's "Completes in Month 2" list (2026-09-29)
 
-- `FREQ=MONTHLY` / `FREQ=YEARLY` (incl. birthday auto-events), `BYMONTHDAY`,
-  `BYSETPOS`, `BYMONTH`, ordinal `BYDAY` (`2MO`), non-`MO` `WKST`
-- Exhaustive **DST gap / ambiguous-hour** resolution and **leap-year** edge tests
-  (see `timezone.ts` — ordinary transitions work; the two pathological wall-clock
-  cases are not yet special-cased)
-- Decision (needs team approval — locked-stack rule): adopt `rrule` + `luxon`, or
-  keep the hand-rolled zero-dep engine and extend it
-- The `GET /occurrences` / `GET /friends/{userId}/occurrences` endpoints that call
-  this engine (the friends path adds server-side `sensitive_public` redaction)
+- MONTHLY, YEARLY, `BYMONTHDAY`, `BYSETPOS`, `BYMONTH`, ordinal `BYDAY`, `WKST`:
+  **done** (see above).
+- DST gap and fold: handled and tested with fixed cases; the one-hour fold
+  divergence from Postgres is documented as AD-5. Generated DST and leap-year
+  cases are **P3**.
+- `rrule` + `luxon` decision: **decided** — the runtime engine stays
+  hand-rolled and zero-dependency. `rrule` (rrule.js) and `fast-check` enter
+  only as **dev dependencies of this package**, as the independent oracle and
+  generator for the P3 differential tests.
+- `GET /occurrences`: **done**. `GET /friends/{userId}/occurrences` with
+  server-side `sensitive_public` redaction: **P1** (not built).
+
+Milestones P1 and P3 are in
+[docs/planning/DEVELOPMENT_PLAN.md](../../docs/planning/DEVELOPMENT_PLAN.md).
 
 ## Tests
 
@@ -62,6 +77,7 @@ pnpm --filter @planpal/recurrence test
 ```
 
 Covers the timezone conversion, the RRULE subset/iterator (incl. COUNT-from-start),
-and the full seed scenario (master + override + cancel + standalone). The plan
-marks the recurrence engine as a **mandatory high-coverage area**; Phase 3 wires
-this suite into CI.
+and the full seed scenario (master + override + cancel + standalone). The suite
+is 57 hand-written cases with enforced coverage floors (90 % lines, 85 %
+branches, 90 % functions) and runs in CI. It has no generated or property-based
+cases yet; that is P3.
