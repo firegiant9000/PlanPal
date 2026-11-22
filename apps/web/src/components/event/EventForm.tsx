@@ -50,9 +50,16 @@ const REPEAT_OPTIONS: { value: RepeatSelection; label: string }[] = [
 // build one (the friend graph is M6). Offering it would silently create an
 // event shared with nobody, which is worse than not offering it — the same
 // reasoning as the disabled OAuth buttons on the sign-in screens.
+//
+// `shared_all` is disabled for the same reason. It needs no list, but no user
+// can connect to a friend yet (request and accept are not built) and event
+// access is owner-only, so it too would save an event shared with nobody. An
+// event that already carries a disabled value keeps it selectable (see the
+// `<option>` below), so editing a seeded or API-created event does not leave
+// it on a choice the user could never pick again.
 const VISIBILITY_OPTIONS = [
   { value: 'private', label: 'Private', disabled: false },
-  { value: 'shared_all', label: 'All friends', disabled: false },
+  { value: 'shared_all', label: 'All friends (needs friend connections — M6)', disabled: true },
   { value: 'shared_select', label: 'Select friends (needs the friend list — M6)', disabled: true },
   { value: 'sensitive_public', label: 'Busy (time only)', disabled: false },
 ];
@@ -221,7 +228,11 @@ export function EventForm({ timezoneId, initial, onSubmit, onCancel, submitting 
           aria-label="Visibility"
         >
           {VISIBILITY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value} disabled={o.disabled}>
+            <option
+              key={o.value}
+              value={o.value}
+              disabled={o.disabled && o.value !== initial?.visibility}
+            >
               {o.label}
             </option>
           ))}

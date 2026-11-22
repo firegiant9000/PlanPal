@@ -86,4 +86,32 @@ describe('EventForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save event' }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it('does not offer either sharing option on a new event', () => {
+    // No user can connect to a friend yet and event access is owner-only, so
+    // either choice would save an event that is shared with nobody.
+    render(<EventForm timezoneId="America/New_York" onSubmit={() => {}} onCancel={() => {}} />);
+
+    expect(screen.getByRole('option', { name: /^All friends/ })).toBeDisabled();
+    expect(screen.getByRole('option', { name: /^Select friends/ })).toBeDisabled();
+    expect(screen.getByRole('option', { name: 'Private' })).toBeEnabled();
+    expect(screen.getByRole('option', { name: /^Busy/ })).toBeEnabled();
+  });
+
+  it('keeps the sharing choice of an event that already has one', () => {
+    // Seeded and API-created events can carry `shared_all`. Editing one must
+    // not leave its value on an option the user could never pick again.
+    render(
+      <EventForm
+        timezoneId="America/New_York"
+        initial={{ visibility: 'shared_all' }}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText('Visibility')).toHaveValue('shared_all');
+    expect(screen.getByRole('option', { name: /^All friends/ })).toBeEnabled();
+    expect(screen.getByRole('option', { name: /^Select friends/ })).toBeDisabled();
+  });
 });
