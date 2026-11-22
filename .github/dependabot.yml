@@ -21,6 +21,22 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Packages the Expo SDK pins (expo/bundledNativeModules.json). CI fails
+      # any PR that moves one off its pin (`expo install --check` in ci.yml),
+      # so a monthly PR that bumps them can never merge. They move together,
+      # with `npx expo install --fix`, when the SDK itself is upgraded. The
+      # React type packages are listed because they follow the pinned React.
+      - dependency-name: "expo"
+      - dependency-name: "expo-*"
+      - dependency-name: "jest-expo"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+      - dependency-name: "react-native"
+      - dependency-name: "react-native-*"
+      - dependency-name: "@react-native-async-storage/async-storage"
+      - dependency-name: "@sentry/react-native"
+      - dependency-name: "@types/react"
+      - dependency-name: "@types/react-dom"
   - package-ecosystem: "github-actions"
     directory: "/"
     patterns: ["*"]
