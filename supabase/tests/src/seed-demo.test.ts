@@ -80,13 +80,39 @@ describe('seed.demo.sql', () => {
     const client = createPlanPalClient({ supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
     await client.auth.signInWithPassword('demo@planpal.app', 'planpal-demo');
 
-    const occurrences = await client.occurrences.range('2026-08-30', '2026-10-10');
+    // Every demo event is anchored to date_trunc('week', now()) at seed time.
+    // Read that anchor back from the seeded Standup master (local_start is
+    // Monday 09:30) rather than recomputing it in JS: the DB's timezone and a
+    // week boundary crossed between seeding and this test cannot make the
+    // window disagree with the rows.
+    const anchorRows = await query<{ monday: string }>(
+      `select to_char(local_start::date, 'YYYY-MM-DD') as monday
+         from public.events
+        where owner_id = $1 and is_master and title = 'Standup'`,
+      [DEMO_ID],
+    );
+    expect(anchorRows).toHaveLength(1);
+    const monday = anchorRows[0]!.monday;
+    const plusDays = (days: number): string => {
+      const d = new Date(`${monday}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+
+    // Monday-7d .. Monday+35d spans the seeded week and five more recurrences.
+    const occurrences = await client.occurrences.range(plusDays(-7), plusDays(35));
 
     const titles = occurrences.map((o) => o.title);
     expect(titles).toContain('Coffee with Sam');
     expect(titles).toContain('Standup (moved)');
-    // The cancelled Friday must not come back as an occurrence.
-    expect(occurrences.some((o) => o.occurrenceDate === '2026-09-11')).toBe(false);
+    // The cancelled Friday (Monday+4) must not come back as an occurrence...
+    const dates = occurrences.map((o) => o.occurrenceDate);
+    expect(dates).not.toContain(plusDays(4));
+    // ...while its non-cancelled neighbours do, so the absence above is real
+    // and not an artefact of the window missing the series.
+    expect(dates).toContain(plusDays(0));
+    expect(dates).toContain(plusDays(2));
+    expect(dates).toContain(plusDays(7 + 4));
   });
 
   it('keeps a recurring master with both an override and a cancellation', async () => {

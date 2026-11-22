@@ -42,6 +42,14 @@ describe('privacy disclosure acknowledgment', () => {
     await expect(hasAcknowledgedDisclosure(store)).resolves.toBe(true);
   });
 
+  it('does not treat an acknowledgment of the earlier (inaccurate) notice as acknowledging this one', async () => {
+    const store = memoryStore({
+      'planpal.privacyDisclosure.acknowledgedAt.v1': '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(hasAcknowledgedDisclosure(store)).resolves.toBe(false);
+  });
+
   it('fails toward showing the notice again when the store read throws', async () => {
     // Private browsing / a cold AsyncStorage read racing app boot must not
     // crash the flow, and must not silently skip a notice MONTH5.md requires

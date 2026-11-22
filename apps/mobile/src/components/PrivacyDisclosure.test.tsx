@@ -6,15 +6,28 @@ describe('PrivacyDisclosure', () => {
     const { getByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
 
     expect(getByText(/sent to Anthropic \(the Claude AI service\)/)).toBeTruthy();
-    expect(getByText(/Amazon Textract/)).toBeTruthy();
-    expect(getByText(/stored with your account/)).toBeTruthy();
-    expect(getByText(/does not delete them automatically yet/)).toBeTruthy();
+    expect(
+      getByText(/If Claude cannot read an image clearly, it is also sent to Amazon Textract/),
+    ).toBeTruthy();
+    expect(
+      getByText(/The screenshot, the text read from it and the events found in it are stored\./),
+    ).toBeTruthy();
   });
 
-  it('does not claim screenshots are discarded after the scan', async () => {
-    const { queryByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
+  it('says there is no in-app deletion yet', async () => {
+    const { getByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
 
-    expect(queryByText(/not retained/)).toBeNull();
+    expect(getByText(/There is no way to delete them in the app yet\./)).toBeTruthy();
+  });
+
+  it('says account deletion removes the text and events but not the screenshot images', async () => {
+    const { getByText } = await render(<PrivacyDisclosure mode="gate" onDismiss={jest.fn()} />);
+
+    expect(
+      getByText(
+        /Deleting your account removes the text and events, but does not yet remove the screenshot images\./,
+      ),
+    ).toBeTruthy();
   });
 
   it('labels the action "continue" in gate mode and calls onDismiss when pressed', async () => {
