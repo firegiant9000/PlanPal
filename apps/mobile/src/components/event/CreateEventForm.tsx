@@ -8,7 +8,8 @@
  *     → Variable-schedule toggle (shows "Schedule not yet entered" placeholder)
  *   - End repeat: Never | On date | After N occurrences
  *   - Notification lead times (checkboxes: 0 min, 10 min, 30 min, 1 hr, 1 day)
- *   - Visibility: Private | Shared with all friends | Sensitive public
+ *   - Visibility: Private | Sensitive public (the two friend-sharing choices
+ *     are listed but disabled until friend connections exist)
  *
  * This component is intentionally self-contained (no API calls inside).
  * The parent screen calls onSubmit with the assembled payload and handles the
@@ -69,10 +70,15 @@ const REPEAT_LABELS: Record<RepeatOption, string> = {
 
 const VISIBILITY_LABELS: Record<Visibility, string> = {
   private: 'Private',
-  shared_all: 'All friends',
-  shared_select: 'Select friends',
+  shared_all: 'All friends (needs friend connections — M6)',
+  shared_select: 'Select friends (needs the friend list — M6)',
   sensitive_public: 'Busy (time only)',
 };
+
+// Listed but not selectable, as on web (apps/web EventForm): no user can
+// connect to a friend yet and event access is owner-only, so either choice
+// would save an event shared with nobody.
+const UNBUILT_VISIBILITIES: ReadonlySet<Visibility> = new Set(['shared_all', 'shared_select']);
 
 const LEAD_TIME_OPTIONS = [
   { label: 'At start', minutes: 0 },
@@ -320,22 +326,31 @@ export function CreateEventForm({
 
           {showVisibilityPicker && (
             <View style={styles.pickerOptions}>
-              {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((opt) => (
-                <TouchableOpacity
-                  key={opt}
-                  style={[styles.optionRow, opt === visibility && styles.optionRowSelected]}
-                  onPress={() => {
-                    setVisibility(opt);
-                    setShowVisibilityPicker(false);
-                  }}
-                >
-                  <Text
-                    style={[styles.optionText, opt === visibility && styles.optionTextSelected]}
+              {(Object.keys(VISIBILITY_LABELS) as Visibility[]).map((opt) => {
+                const unbuilt = UNBUILT_VISIBILITIES.has(opt);
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.optionRow, opt === visibility && styles.optionRowSelected]}
+                    disabled={unbuilt}
+                    accessibilityState={{ disabled: unbuilt, selected: opt === visibility }}
+                    onPress={() => {
+                      setVisibility(opt);
+                      setShowVisibilityPicker(false);
+                    }}
                   >
-                    {VISIBILITY_LABELS[opt]}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.optionText,
+                        opt === visibility && styles.optionTextSelected,
+                        unbuilt && styles.optionTextDisabled,
+                      ]}
+                    >
+                      {VISIBILITY_LABELS[opt]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </Section>
@@ -509,6 +524,9 @@ const styles = StyleSheet.create({
   optionTextSelected: {
     color: theme.colors.accent,
     fontWeight: theme.typography.fontWeight.semibold,
+  },
+  optionTextDisabled: {
+    color: theme.colors.textSecondary,
   },
   variableNote: {
     paddingHorizontal: theme.spacing.lg,
